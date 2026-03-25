@@ -32,18 +32,24 @@ pipeline {
         }
 
         stage('Deploy') {
-            steps {
-                sh '''
-                    mkdir -p $APP_DIR
-                    rsync -av --delete \
-                    --exclude='.git' \
-                    --exclude='node_modules' \
-                    ./ $APP_DIR/
-                    cd $APP_DIR
-                    npm install --omit=dev
-                '''
-            }
+    steps {
+        withCredentials([file(credentialsId: 'ENV_PRODUCTION', variable: 'ENV_FILE')]) {
+            sh '''
+                mkdir -p /var/www/fitness_exercises
+
+                rsync -av --delete \
+                  --no-group \
+                  --exclude=.git \
+                  --exclude=node_modules \
+                  ./ /var/www/fitness_exercises/
+
+                cp "$ENV_FILE" /var/www/fitness_exercises/.env
+                cd /var/www/fitness_exercises
+                npm ci --omit=dev
+            '''
         }
+    }
+}
 
         stage('Restart Server') {
             steps {
