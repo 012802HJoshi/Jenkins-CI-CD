@@ -1,5 +1,5 @@
 const express = require("express");
-const { createExercise, deleteExerciseFolder } = require("../controllers/exerciseController");
+const { createExercise, deleteExerciseFolder, getExerciseById, getAllExercises } = require("../controllers/exerciseController");
 const { upload } = require("../middleware/upload");
 
 const router = express.Router();
@@ -13,6 +13,8 @@ router.post(
   createExercise
 );
 
+router.get("/", getAllExercises);
+router.get("/:id", getExerciseById);
 
 router.delete("/:slug/folder", deleteExerciseFolder);
 

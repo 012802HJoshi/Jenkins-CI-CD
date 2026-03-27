@@ -1,5 +1,6 @@
 const Workout = require("../models/Workout");
 const Exercise = require("../models/Exercise");
+const mongoose = require("mongoose");
 
 async function attachExerciseReferences(payload) {
   const normalized = { ...payload };
@@ -47,12 +48,35 @@ async function listWorkouts(req, res, next) {
     const workouts = await Workout.find()
       .sort({ createdAt: -1 })
       .limit(50)
-      .populate("weeklySchedule.exercises.exerciseId", "title slug muscleGroup equipment");
+      .select("_id name goal daysPerWeek weeks");
     return res.json({ ok: true, data: workouts });
   } catch (err) {
     return next(err);
   }
 }
 
-module.exports = { createWorkout, listWorkouts };
+async function getWorkoutById(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, message: "invalid workout id" });
+    }
+
+    const workout = await Workout.findById(id).populate(
+      "weeklySchedule.exercises.exerciseId",
+      "title slug muscleGroup equipment"
+    );
+
+    if (!workout) {
+      return res.status(404).json({ ok: false, message: "workout not found" });
+    }
+
+    return res.json({ ok: true, data: workout });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = { createWorkout, listWorkouts, getWorkoutById };
 
