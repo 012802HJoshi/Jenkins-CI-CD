@@ -1,4 +1,5 @@
 const express = require("express");
+const cors = require("cors");
 require("dotenv").config();
 
 const { connectDB } = require("./config/db");
@@ -7,6 +8,16 @@ const workoutRoutes = require("./routes/workoutRoutes");
 
 const app = express();
 
+const corsAllowedOrigins = [
+  "http://localhost:5173",
+  "https://dashboardnotification.web.app",
+];
+
+app.use(
+  cors({
+    origin: corsAllowedOrigins,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

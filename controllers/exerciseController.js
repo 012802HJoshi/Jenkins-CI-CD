@@ -53,6 +53,7 @@ async function createExercise(req, res, next) {
       secondaryMuscles,
       equipment,
       category,
+      gender,
       difficulty,
       videoUrl: videoUrlFromBody,
       thumbnailUrl: thumbnailUrlFromBody,
@@ -86,6 +87,7 @@ async function createExercise(req, res, next) {
       secondaryMuscles,
       equipment,
       category,
+      gender,
       difficulty,
       exerciseType,
       videoUrl,
@@ -146,11 +148,74 @@ async function getExerciseById(req, res, next) {
 
 async function getAllExercises(req, res, next) {
   try {
-    const exercises = await Exercise.find().sort({ createdAt: -1 });
+    const exercises = await Exercise.find()
+      .sort({ createdAt: -1 })
+      .select("_id title slug muscleGroup thumbnailUrl equipment category gender difficulty exerciseType");
     return res.json({ ok: true, data: exercises });
   } catch (err) {
     return next(err);
   }
 }
 
-module.exports = { createExercise, deleteExerciseFolder, getExerciseById, getAllExercises };
+const LIST_SELECT =
+  "_id title slug muscleGroup thumbnailUrl secondaryMuscles equipment category gender difficulty exerciseType";
+
+async function getExerciseByCategory(req, res, next) {
+  try {
+    const category = (req.params.category || "").trim();
+    const exercises = await Exercise.find({ category })
+      .sort({ createdAt: -1 })
+      .select(LIST_SELECT)
+      .lean();
+    return res.json({ ok: true, data: exercises });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getExerciseByEquipment(req, res, next) {
+  try {
+    const equipment = (req.params.equipment || "").trim();
+    const exercises = await Exercise.find({ equipment })
+      .sort({ createdAt: -1 })
+      .select(LIST_SELECT)
+      .lean();
+    return res.json({ ok: true, data: exercises });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getExerciseByCategoryEquipmentDifficultyGender(req, res, next) {
+  try {
+    const category = (req.query.category || "").trim();
+    const equipment = (req.query.equipment || "").trim();
+    const difficulty = (req.query.difficulty || "").trim();
+    const gender = (req.query.gender || "").trim();
+
+    const filter = {};
+    if (category) filter.category = category;
+    if (equipment) filter.equipment = equipment;
+    if (difficulty) filter.difficulty = difficulty;
+    if (gender) filter.gender = gender;
+
+    const exercises = await Exercise.find(filter)
+      .sort({ createdAt: -1 })
+      .select(LIST_SELECT)
+      .lean();
+
+    return res.json({ ok: true, data: exercises });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = {
+  createExercise,
+  deleteExerciseFolder,
+  getExerciseById,
+  getAllExercises,
+  getExerciseByCategory,
+  getExerciseByEquipment,
+  getExerciseByCategoryEquipmentDifficultyGender,
+};

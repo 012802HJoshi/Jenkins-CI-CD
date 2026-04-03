@@ -3,8 +3,6 @@ pipeline {
 
     environment {
         APP_DIR = "/var/www/fitness_exercises"
-        APP_NAME = "fitness_exercises"
-        APP_PORT = "3000"
     }
 
     stages {
@@ -29,7 +27,7 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
-                sh 'npm ci'
+                sh 'npm install'
             }
         }
 
@@ -57,18 +55,10 @@ pipeline {
             steps {
                 sh '''
                     cd $APP_DIR
-                    
-                    # If old process is still holding the API port, kill it first.
-                    if lsof -ti tcp:$APP_PORT >/dev/null 2>&1; then
-                      echo "Port $APP_PORT is busy. Stopping old process..."
-                      fuser -k $APP_PORT/tcp || sudo fuser -k $APP_PORT/tcp || true
-                    fi
 
-                    # Replace process in PM2 with latest code/env.
-                    pm2 delete "$APP_NAME" || true
-                    pm2 start npm --name "$APP_NAME" -- run start --update-env
+                    pm2 reload fitness_exercises || pm2 start npm --name fitness_exercises -- run start
+
                     pm2 save
-                    pm2 ls
                 '''
             }
         }
