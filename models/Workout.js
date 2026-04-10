@@ -29,6 +29,8 @@ const WorkoutSchema = new mongoose.Schema(
     daysPerWeek: { type: Number, default: 0, min: 0 },
     weeks: { type: Number, default: 0, min: 0 },
     weeklySchedule: { type: [WorkoutDaySchema], default: [] },
+    bannerUrl: { type: String, default: "", trim: true },
+    imageUrl: { type: String, default: "", trim: true },
   },
   { timestamps: true }
 );

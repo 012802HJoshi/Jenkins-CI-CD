@@ -104,6 +104,79 @@ async function createExercise(req, res, next) {
   }
 }
 
+async function updateExercise(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, message: "invalid exercise id" });
+    }
+
+    const exercise = await Exercise.findById(id);
+    if (!exercise) {
+      return res.status(404).json({ ok: false, message: "exercise not found" });
+    }
+
+    const body = req.body || {};
+    const updates = {};
+
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.slug !== undefined) {
+      const s = String(body.slug).trim();
+      if (s) updates.slug = s;
+    }
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.muscleGroup !== undefined) updates.muscleGroup = body.muscleGroup;
+    if (body.secondaryMuscles !== undefined) updates.secondaryMuscles = body.secondaryMuscles;
+    if (body.equipment !== undefined) updates.equipment = body.equipment;
+    if (body.category !== undefined) updates.category = body.category;
+    if (body.gender !== undefined) updates.gender = body.gender;
+    if (body.difficulty !== undefined) updates.difficulty = body.difficulty;
+    if (body.instructions !== undefined) updates.instructions = parseStringArray(body.instructions);
+    if (body.importantPoints !== undefined) updates.importantPoints = parseStringArray(body.importantPoints);
+    if (body.exerciseType !== undefined) updates.exerciseType = parseStringArray(body.exerciseType);
+    if (body.videoUrl !== undefined) updates.videoUrl = body.videoUrl;
+    if (body.thumbnailUrl !== undefined) updates.thumbnailUrl = body.thumbnailUrl;
+
+    const nextSlug = updates.slug !== undefined ? updates.slug : exercise.slug;
+    if (updates.slug !== undefined && updates.slug !== exercise.slug) {
+      const taken = await Exercise.findOne({ slug: updates.slug, _id: { $ne: id } });
+      if (taken) {
+        return res.status(409).json({ ok: false, message: "slug already in use" });
+      }
+    }
+
+    const videoFile = req.files?.video?.[0];
+    const thumbFile = req.files?.thumbnail?.[0];
+    if (videoFile) {
+      updates.videoUrl = await gcsupload(
+        nextSlug,
+        withForcedOriginalName(videoFile, "video.mp4"),
+        false
+      );
+    }
+    if (thumbFile) {
+      updates.thumbnailUrl = await gcsupload(
+        nextSlug,
+        withForcedOriginalName(thumbFile, "image.jpg"),
+        false
+      );
+    }
+
+    Object.assign(exercise, updates);
+    if (updates.title !== undefined && !String(exercise.title || "").trim()) {
+      return res.status(400).json({ ok: false, message: "title cannot be empty" });
+    }
+    await exercise.save();
+
+    const exerciseJson = exercise.toObject ? exercise.toObject() : exercise;
+    await gcsupload(nextSlug, toJsonFile(exerciseJson, "exercise.json"), false);
+
+    return res.json({ ok: true, data: exercise });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 async function deleteExerciseFolder(req, res, next) {
   try {
     const { slug } = req.params;
@@ -212,6 +285,7 @@ async function getExerciseByCategoryEquipmentDifficultyGender(req, res, next) {
 
 module.exports = {
   createExercise,
+  updateExercise,
   deleteExerciseFolder,
   getExerciseById,
   getAllExercises,

@@ -1,6 +1,19 @@
 const Workout = require("../models/Workout");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
+const { gcsupload } = require("../config/gcsupload");
+
+function withForcedOriginalName(file, forcedName) {
+  if (!file) return file;
+  return { ...file, originalname: forcedName };
+}
+
+function extFromMime(mimetype) {
+  if (!mimetype) return "jpg";
+  if (mimetype.includes("png")) return "png";
+  if (mimetype.includes("webp")) return "webp";
+  return "jpg";
+}
 
 async function attachExerciseReferences(payload) {
   const normalized = { ...payload };
@@ -33,9 +46,42 @@ async function attachExerciseReferences(payload) {
 
 async function createWorkout(req, res, next) {
   try {
-    const payload = req.body?.data && typeof req.body.data === "object" ? req.body.data : req.body;
+    let payload = req.body?.data && typeof req.body.data === "object" ? req.body.data : req.body;
+    if (typeof req.body?.data === "string") {
+      try {
+        payload = JSON.parse(req.body.data);
+      } catch {
+        payload = req.body;
+      }
+    }
 
     const payloadWithRefs = await attachExerciseReferences(payload);
+    const workoutName = String(payloadWithRefs?.name || "").trim();
+    if (!workoutName) {
+      return res.status(400).json({ ok: false, message: "name is required" });
+    }
+
+    const workoutFolder = `workout_plan/${workoutName}`;
+    const thumbFile = req.files?.thumbnail?.[0];
+    const imageFile = req.files?.image?.[0];
+
+    if (thumbFile) {
+      const ext = extFromMime(thumbFile.mimetype);
+      payloadWithRefs.bannerUrl = await gcsupload(
+        workoutFolder,
+        withForcedOriginalName(thumbFile, `thumbnail.${ext}`),
+        false
+      );
+    }
+    if (imageFile) {
+      const ext = extFromMime(imageFile.mimetype);
+      payloadWithRefs.imageUrl = await gcsupload(
+        workoutFolder,
+        withForcedOriginalName(imageFile, `image.${ext}`),
+        false
+      );
+    }
+
     const workout = await Workout.create(payloadWithRefs);
     return res.status(201).json({ ok: true, data: workout });
   } catch (err) {
@@ -48,7 +94,7 @@ async function listWorkouts(req, res, next) {
     const workouts = await Workout.find()
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id name goal daysPerWeek weeks");
+      .select("_id name goal daysPerWeek weeks bannerUrl imageUrl");
     return res.json({ ok: true, data: workouts });
   } catch (err) {
     return next(err);

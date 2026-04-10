@@ -1,6 +1,7 @@
 const express = require("express");
 const {
   createExercise,
+  updateExercise,
   deleteExerciseFolder,
   getExerciseById,
   getAllExercises,
@@ -29,6 +30,15 @@ router.get("/equipment/:equipment", getExerciseByEquipment); // /equipment/barbe
 
 router.get("/", getAllExercises);
 router.get("/:id", getExerciseById);
+
+router.patch(
+  "/:id",
+  upload.fields([
+    { name: "video", maxCount: 1 },
+    { name: "thumbnail", maxCount: 1 },
+  ]),
+  updateExercise
+);
 
 router.delete("/:slug/folder", deleteExerciseFolder);
 
