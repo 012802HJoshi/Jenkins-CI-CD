@@ -2,6 +2,14 @@ const Workout = require("../models/Workout");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
 const { gcsupload } = require("../config/gcsupload");
+const { gcsdelete } = require("../config/gcsdelete");
+
+const WORKOUT_PLAN_GCS_PREFIX = "workout_plan";
+
+function workoutGcsFolder(slug) {
+  const s = String(slug || "").trim();
+  return `${WORKOUT_PLAN_GCS_PREFIX}/${s}`;
+}
 
 function withForcedOriginalName(file, forcedName) {
   if (!file) return file;
@@ -15,19 +23,51 @@ function extFromMime(mimetype) {
   return "jpg";
 }
 
+/**
+ * Resolves exerciseId from exerciseSlug and validates every slug exists in Exercise.
+ * @returns {{ ok: true, payload: object } | { ok: false, status: number, message: string, missing?: string[] }}
+ */
 async function attachExerciseReferences(payload) {
   const normalized = { ...payload };
   const weeklySchedule = Array.isArray(payload?.weeklySchedule) ? payload.weeklySchedule : [];
 
+  for (const day of weeklySchedule) {
+    const exercises = Array.isArray(day?.exercises) ? day.exercises : [];
+    for (const item of exercises) {
+      const slug = String(item?.exerciseSlug || "").trim();
+      if (!slug) {
+        return {
+          ok: false,
+          status: 400,
+          message: "exerciseSlug is required for every exercise in weeklySchedule",
+        };
+      }
+    }
+  }
+
   const allSlugs = weeklySchedule
     .flatMap((day) => (Array.isArray(day?.exercises) ? day.exercises : []))
-    .map((item) => item?.exerciseSlug)
+    .map((item) => String(item?.exerciseSlug || "").trim())
     .filter(Boolean);
 
-  if (!allSlugs.length) return normalized;
+  if (!allSlugs.length) {
+    return { ok: true, payload: normalized };
+  }
 
   const uniqueSlugs = [...new Set(allSlugs)];
   const matchedExercises = await Exercise.find({ slug: { $in: uniqueSlugs } }, { _id: 1, slug: 1 });
+  const matchedSet = new Set(matchedExercises.map((e) => e.slug));
+  const missing = uniqueSlugs.filter((s) => !matchedSet.has(s));
+
+  if (missing.length) {
+    return {
+      ok: false,
+      status: 400,
+      message: "one or more exercise slugs do not exist",
+      missing,
+    };
+  }
+
   const slugToId = new Map(matchedExercises.map((item) => [item.slug, item._id]));
 
   normalized.weeklySchedule = weeklySchedule.map((day) => {
@@ -36,12 +76,12 @@ async function attachExerciseReferences(payload) {
       ...day,
       exercises: exercises.map((item) => ({
         ...item,
-        exerciseId: slugToId.get(item.exerciseSlug) || undefined,
+        exerciseId: slugToId.get(String(item.exerciseSlug || "").trim()) || undefined,
       })),
     };
   });
 
-  return normalized;
+  return { ok: true, payload: normalized };
 }
 
 async function createWorkout(req, res, next) {
@@ -55,13 +95,33 @@ async function createWorkout(req, res, next) {
       }
     }
 
-    const payloadWithRefs = await attachExerciseReferences(payload);
+    const refsResult = await attachExerciseReferences(payload);
+    if (!refsResult.ok) {
+      return res.status(refsResult.status).json({
+        ok: false,
+        message: refsResult.message,
+        ...(refsResult.missing?.length ? { missing: refsResult.missing } : {}),
+      });
+    }
+    const payloadWithRefs = refsResult.payload;
+
     const workoutName = String(payloadWithRefs?.name || "").trim();
+    const slug = String(payloadWithRefs?.slug || "").trim();
     if (!workoutName) {
       return res.status(400).json({ ok: false, message: "name is required" });
     }
+    if (!slug) {
+      return res.status(400).json({ ok: false, message: "slug is required" });
+    }
 
-    const workoutFolder = `workout_plan/${workoutName}`;
+    const diffRaw = String(payloadWithRefs.difficulty ?? "").trim();
+    if (!diffRaw) {
+      delete payloadWithRefs.difficulty;
+    } else {
+      payloadWithRefs.difficulty = diffRaw;
+    }
+
+    const workoutFolder = workoutGcsFolder(slug);
     const thumbFile = req.files?.thumbnail?.[0];
     const imageFile = req.files?.image?.[0];
 
@@ -94,8 +154,54 @@ async function listWorkouts(req, res, next) {
     const workouts = await Workout.find()
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id name goal daysPerWeek weeks bannerUrl imageUrl");
+      .select("_id slug name goal difficulty daysPerWeek weeks bannerUrl imageUrl");
     return res.json({ ok: true, data: workouts });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+const WORKOUT_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
+
+async function getWorkoutsByDifficulty(req, res, next) {
+  try {
+    const difficulty = String(req.params.difficulty || "").trim().toLowerCase();
+    if (!difficulty || !WORKOUT_DIFFICULTIES.has(difficulty)) {
+      return res.status(400).json({
+        ok: false,
+        message: "difficulty must be one of: beginner, intermediate, advanced",
+      });
+    }
+
+    const workouts = await Workout.find({ difficulty })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .select("_id slug name goal difficulty daysPerWeek weeks bannerUrl imageUrl")
+      .lean();
+
+    return res.json({ ok: true, data: workouts });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getWorkoutBySlug(req, res, next) {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    if (!slug) {
+      return res.status(400).json({ ok: false, message: "slug is required" });
+    }
+
+    const workout = await Workout.findOne({ slug }).populate(
+      "weeklySchedule.exercises.exerciseId",
+      "title slug muscleGroup equipment"
+    );
+
+    if (!workout) {
+      return res.status(404).json({ ok: false, message: "workout not found" });
+    }
+
+    return res.json({ ok: true, data: workout });
   } catch (err) {
     return next(err);
   }
@@ -124,5 +230,36 @@ async function getWorkoutById(req, res, next) {
   }
 }
 
-module.exports = { createWorkout, listWorkouts, getWorkoutById };
+async function deleteWorkout(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, message: "invalid workout id" });
+    }
+
+    const workout = await Workout.findById(id).select("slug");
+    if (!workout) {
+      return res.status(404).json({ ok: false, message: "workout not found" });
+    }
+
+    const folderPrefix = workoutGcsFolder(workout.slug);
+    await gcsdelete(folderPrefix, false);
+
+    await Workout.deleteOne({ _id: id });
+
+    return res.json({ ok: true, message: "workout deleted", data: { gcsPrefix: `${folderPrefix}/` } });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+module.exports = {
+  createWorkout,
+  listWorkouts,
+  getWorkoutsByDifficulty,
+  getWorkoutById,
+  getWorkoutBySlug,
+  deleteWorkout,
+};
 

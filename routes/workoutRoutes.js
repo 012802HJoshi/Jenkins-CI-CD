@@ -1,10 +1,19 @@
 const express = require("express");
-const { createWorkout, listWorkouts, getWorkoutById } = require("../controllers/workoutController");
+const {
+  createWorkout,
+  listWorkouts,
+  getWorkoutsByDifficulty,
+  getWorkoutById,
+  getWorkoutBySlug,
+  deleteWorkout,
+} = require("../controllers/workoutController");
 const { upload } = require("../middleware/upload");
 
 const router = express.Router();
 
 router.get("/", listWorkouts);
+router.get("/difficulty/:difficulty", getWorkoutsByDifficulty);
+router.get("/slug/:slug", getWorkoutBySlug);
 router.get("/:id", getWorkoutById);
 router.post(
   "/",
@@ -14,6 +23,7 @@ router.post(
   ]),
   createWorkout
 );
+router.delete("/:id", deleteWorkout);
 
 module.exports = router;
 

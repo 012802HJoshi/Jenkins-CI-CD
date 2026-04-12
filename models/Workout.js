@@ -24,8 +24,14 @@ const WorkoutDaySchema = new mongoose.Schema(
 
 const WorkoutSchema = new mongoose.Schema(
   {
+    slug: { type: String, required: true, unique: true, trim: true },
     name: { type: String, required: true, trim: true },
     goal: { type: String, default: "", trim: true }, // e.g. "muscle_building"
+    difficulty: {
+      type: String,
+      enum: ["beginner", "intermediate", "advanced"],
+      default: "beginner",
+    },
     daysPerWeek: { type: Number, default: 0, min: 0 },
     weeks: { type: Number, default: 0, min: 0 },
     weeklySchedule: { type: [WorkoutDaySchema], default: [] },
@@ -34,6 +40,8 @@ const WorkoutSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+WorkoutSchema.index({ difficulty: 1 });
 
 module.exports = mongoose.model("Workout", WorkoutSchema);
 
