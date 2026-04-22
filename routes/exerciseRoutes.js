@@ -6,8 +6,8 @@ const {
   getExerciseById,
   getAllExercises,
   getExerciseByCategory,
-  getExerciseByEquipment,
-  getExerciseByCategoryEquipmentDifficultyGender,
+  getExerciseByExerciseType,
+  getExercisesByFilter,
 } = require("../controllers/exerciseController");
 const { upload } = require("../middleware/upload");
 
@@ -23,10 +23,10 @@ router.post(
 );
 
 // Filters (keep before "/:id" — "/filter" must exist or "filter" is treated as :id and returns 400)
-router.get("/filter", getExerciseByCategoryEquipmentDifficultyGender);
-router.get("/filters", getExerciseByCategoryEquipmentDifficultyGender);
+router.get("/filter", getExercisesByFilter);
+router.get("/filters", getExercisesByFilter);
 router.get("/category/:category", getExerciseByCategory); // /category/Legs
-router.get("/equipment/:equipment", getExerciseByEquipment); // /equipment/barbell
+router.get("/exercise-type/:exerciseType", getExerciseByExerciseType); // e.g. /exercise-type/strength
 
 router.get("/", getAllExercises);
 router.get("/:id", getExerciseById);

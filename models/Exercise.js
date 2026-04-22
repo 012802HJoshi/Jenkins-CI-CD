@@ -12,12 +12,13 @@ const ExerciseSchema = new mongoose.Schema(
     equipment: { type: String, default: "" },
     category: { type: String, default: "" },
     gender: { type: String, enum: ["men", "women", "all"], default: "all" },
+    premium: { type: Boolean, default: false },
     difficulty: {
       type: String,
       enum: ["beginner", "intermediate", "advanced"],
       default: "beginner",
     },
-    exerciseType: { type: [String], default: [] },
+    exerciseType: { type: String, enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit"], default: "strength" },
     videoUrl: { type: String, default: "" },
     thumbnailUrl: { type: String, default: "" },
   },
@@ -27,12 +28,12 @@ const ExerciseSchema = new mongoose.Schema(
 // Index for filter queries (e.g. find({ category: "Legs" })). No enum needed—frontend sends allowed values.
 ExerciseSchema.index({ category: 1 });
 
-ExerciseSchema.index({ equipment: 1 });
+ExerciseSchema.index({ exerciseType: 1 });
 
 // Helps common combined filter: category + difficulty
 ExerciseSchema.index({ category: 1, difficulty: 1 });
 
-// Helps combined filter endpoint: category + equipment + difficulty + gender
-ExerciseSchema.index({ category: 1, equipment: 1, difficulty: 1, gender: 1 });
+// Combined filter: category + exerciseType + difficulty + gender
+ExerciseSchema.index({ category: 1, exerciseType: 1, difficulty: 1, gender: 1 });
 
 module.exports = mongoose.model("Exercise", ExerciseSchema);

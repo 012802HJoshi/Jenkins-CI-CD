@@ -53,7 +53,8 @@ curl -X POST "http://localhost:3000/api/exercises" \
   -F "equipment=dumbbell" \
   -F "category=Arms" \
   -F "difficulty=beginner" \
-  -F 'exerciseType=["strength"]' \
+  -F "premium=false" \
+  -F "exerciseType=strength" \
   -F "video=@./sample.mp4" \
   -F "thumbnail=@./thumb.jpg"
 ```
