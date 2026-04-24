@@ -23,7 +23,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, message: "Fitness Exercises API V2" });
+  res.json({ ok: true, message: "Fitness Exercises API V2.1" });
 });
 
 app.use("/api/exercises", exerciseRoutes);
