@@ -1,32 +1,36 @@
 const mongoose = require("mongoose");
 
-const WorkoutDayExerciseSchema = new mongoose.Schema(
+const ChallengeDayExerciseSchema = new mongoose.Schema(
   {
     exerciseId: { type: mongoose.Schema.Types.ObjectId, ref: "Exercise" },
     exerciseSlug: { type: String, required: true, trim: true },
     exerciseTitle: { type: String, default: "", trim: true },
     sets: { type: Number, default: 0, min: 0 },
-    reps: { type: String, default: "", trim: true }, // e.g. "8-12"
+    reps: { type: String, default: "", trim: true },
     restSeconds: { type: Number, default: 0, min: 0 },
   },
   { _id: false }
 );
 
-const WorkoutDaySchema = new mongoose.Schema(
+const ChallengeDaySchema = new mongoose.Schema(
   {
     day: { type: Number, required: true, min: 1 },
-    name: { type: String, required: true, trim: true }, // e.g. "Push A"
+    name: { type: String, required: true, trim: true },
     muscleGroups: { type: [String], default: [] },
-    exercises: { type: [WorkoutDayExerciseSchema], default: [] },
+    exercises: { type: [ChallengeDayExerciseSchema], default: [] },
   },
   { _id: false }
 );
 
-const WorkoutSchema = new mongoose.Schema(
+const ChallengeSchema = new mongoose.Schema(
   {
     slug: { type: String, required: true, unique: true, trim: true },
     name: { type: String, required: true, trim: true },
-    goal: { type: String, default: "", trim: true }, // e.g. "muscle_building"
+    goal: {
+      type: String,
+      enum: ["weight_loss", "muscle_building", "stay_fit", "mobility_relax"],
+      default: "muscle_building",
+    },
     difficulty: {
       type: String,
       enum: ["beginner", "intermediate", "advanced"],
@@ -34,14 +38,14 @@ const WorkoutSchema = new mongoose.Schema(
     },
     daysPerWeek: { type: Number, default: 0, min: 0 },
     weeks: { type: Number, default: 0, min: 0 },
-    weeklySchedule: { type: [WorkoutDaySchema], default: [] },
-    bannerUrl: { type: String, default: "", trim: true },
-    imageUrl: { type: String, default: "", trim: true },
+    weeklySchedule: { type: [ChallengeDaySchema], default: [] },
+    banner: { type: String, default: "", trim: true },
+    image: { type: String, default: "", trim: true },
   },
   { timestamps: true }
 );
 
-WorkoutSchema.index({ difficulty: 1 });
+ChallengeSchema.index({ difficulty: 1 });
 
-module.exports = mongoose.model("Workout", WorkoutSchema);
-
+// Keep existing "workouts" collection so data created with the old Workout model stays compatible.
+module.exports = mongoose.model("Challenge", ChallengeSchema, "workouts");

@@ -19,8 +19,8 @@ const ExerciseSchema = new mongoose.Schema(
       default: "beginner",
     },
     exerciseType: { type: String, enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit"], default: "strength" },
-    videoUrl: { type: String, default: "" },
-    thumbnailUrl: { type: String, default: "" },
+    video: { type: String, default: "" },
+    thumbnail: { type: String, default: "" },
   },
   { timestamps: true }
 );

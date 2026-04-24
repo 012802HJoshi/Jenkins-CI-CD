@@ -4,7 +4,8 @@ require("dotenv").config();
 
 const { connectDB } = require("./config/db");
 const exerciseRoutes = require("./routes/exerciseRoutes");
-const workoutRoutes = require("./routes/workoutRoutes");
+const challengeRoutes = require("./routes/challengeRoutes");
+const planRoutes = require("./routes/planRoutes");
 
 const app = express();
 
@@ -26,7 +27,8 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/exercises", exerciseRoutes);
-app.use("/api/workouts", workoutRoutes);
+app.use("/api/challenges", challengeRoutes);
+app.use('/api/plans',planRoutes);
 
 app.use((err, req, res, next) => {
   const status = err?.status || 500;

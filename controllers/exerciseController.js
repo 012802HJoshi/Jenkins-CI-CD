@@ -68,10 +68,6 @@ function withForcedOriginalName(file, forcedName) {
   return { ...file, originalname: forcedName };
 }
 
-/**
- * Wraps a JSON payload as a mock multer-style file object so it can be
- * passed directly to gcsupload, which expects { buffer, mimetype, originalname }.
- */
 function toJsonFile(data, filename = "exercise.json") {
   const buffer = Buffer.from(JSON.stringify(data, null, 2), "utf-8");
   return {

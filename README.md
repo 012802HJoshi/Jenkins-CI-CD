@@ -69,10 +69,10 @@ Deletes everything under `<slug>/` in your bucket and also deletes the exercise 
 curl -X DELETE "http://localhost:3000/api/exercises/alternating-dumbbell-curl/folder"
 ```
 
-## Create Workout (example)
+## Create Challenge (example)
 
 ```bash
-curl -X POST "http://localhost:3000/api/workouts" \
+curl -X POST "http://localhost:3000/api/challenges" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Push/Pull/Legs 6-Day - Muscle Building",
@@ -92,9 +92,9 @@ curl -X POST "http://localhost:3000/api/workouts" \
   }'
 ```
 
-List workouts:
+List challenges:
 
 ```bash
-curl "http://localhost:3000/api/workouts"
+curl "http://localhost:3000/api/challenges"
 ```
 
