@@ -3,6 +3,22 @@ const mongoose = require("mongoose");
 const { gcsupload } = require("../config/gcsupload");
 const { gcsdelete } = require("../config/gcsdelete");
 
+/** GCS layout: `<slug>/men/…`, `<slug>/female/…`, and `<slug>/exercise.json` at slug root. */
+const EXERCISE_GCS_MEN = "men";
+const EXERCISE_GCS_FEMALE = "female";
+
+function exerciseGenderFolder(slug, genderFolder) {
+  const s = String(slug || "").trim();
+  return `${s}/${genderFolder}`;
+}
+
+function extFromMime(mimetype) {
+  if (!mimetype) return "jpg";
+  if (mimetype.includes("png")) return "png";
+  if (mimetype.includes("webp")) return "webp";
+  return "jpg";
+}
+
 function parseStringArray(value) {
   if (value == null) return [];
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -88,10 +104,11 @@ async function createExercise(req, res, next) {
       secondaryMuscles,
       equipment,
       category,
-      gender,
       difficulty,
-      videoUrl: videoUrlFromBody,
-      thumbnailUrl: thumbnailUrlFromBody,
+      videomale: videomaleFromBody,
+      videofemale: videofemaleFromBody,
+      thumbnailmale: thumbnailmaleFromBody,
+      thumbnailfemale: thumbnailfemaleFromBody,
     } = body;
 
     if (!title || !slug) {
@@ -110,15 +127,60 @@ async function createExercise(req, res, next) {
       return res.status(400).json({ ok: false, message: "premium must be a boolean" });
     }
 
-    const videoFile = req.files?.video?.[0];
-    const thumbFile = req.files?.thumbnail?.[0];
+    const maleVideoFile = req.files?.videomale?.[0];
+    const femaleVideoFile = req.files?.videofemale?.[0];
+    const thumbMaleFile = req.files?.thumbnailmale?.[0];
+    const thumbFemaleFile = req.files?.thumbnailfemale?.[0];
 
-    const videoUrl = videoFile
-      ? await gcsupload(slug, withForcedOriginalName(videoFile, "video.mp4"), false)
-      : (videoUrlFromBody || "");
-    const thumbnailUrl = thumbFile
-      ? await gcsupload(slug, withForcedOriginalName(thumbFile, "image.jpg"), false)
-      : (thumbnailUrlFromBody || "");
+    const pathMen = () => exerciseGenderFolder(slug, EXERCISE_GCS_MEN);
+    const pathFemale = () => exerciseGenderFolder(slug, EXERCISE_GCS_FEMALE);
+
+    const bodyVideomale =
+      body.videomale != null && String(body.videomale).trim() !== ""
+        ? body.videomale
+        : body.videoUrl != null
+          ? body.videoUrl
+          : videomaleFromBody;
+    const bodyVideofemale =
+      body.videofemale != null && String(body.videofemale).trim() !== "" ? body.videofemale : videofemaleFromBody;
+
+    const videomale = maleVideoFile
+      ? await gcsupload(
+          pathMen(),
+          withForcedOriginalName(maleVideoFile, "video.mp4"),
+          false
+        )
+      : bodyVideomale != null && String(bodyVideomale) !== ""
+        ? String(bodyVideomale)
+        : "";
+    const videofemale = femaleVideoFile
+      ? await gcsupload(
+          pathFemale(),
+          withForcedOriginalName(femaleVideoFile, "video.mp4"),
+          false
+        )
+      : bodyVideofemale != null && String(bodyVideofemale) !== ""
+        ? String(bodyVideofemale)
+        : "";
+
+    const thumbnailmale = thumbMaleFile
+      ? await gcsupload(
+          pathMen(),
+          withForcedOriginalName(thumbMaleFile, `thumbnail.${extFromMime(thumbMaleFile.mimetype)}`),
+          false
+        )
+      : thumbnailmaleFromBody != null && String(thumbnailmaleFromBody) !== ""
+        ? String(thumbnailmaleFromBody)
+        : "";
+    const thumbnailfemale = thumbFemaleFile
+      ? await gcsupload(
+          pathFemale(),
+          withForcedOriginalName(thumbFemaleFile, `thumbnail.${extFromMime(thumbFemaleFile.mimetype)}`),
+          false
+        )
+      : thumbnailfemaleFromBody != null && String(thumbnailfemaleFromBody) !== ""
+        ? String(thumbnailfemaleFromBody)
+        : "";
 
     const exercise = await Exercise.create({
       title,
@@ -130,12 +192,13 @@ async function createExercise(req, res, next) {
       secondaryMuscles,
       equipment,
       category,
-      gender,
       difficulty,
       ...(exerciseType !== undefined ? { exerciseType } : {}),
       ...(premium !== undefined ? { premium } : {}),
-      videoUrl,
-      thumbnailUrl,
+      videomale,
+      videofemale,
+      thumbnailmale,
+      thumbnailfemale,
     });
 
     // Upload the exercise document as a JSON file into the same GCS folder
@@ -173,7 +236,6 @@ async function updateExercise(req, res, next) {
     if (body.secondaryMuscles !== undefined) updates.secondaryMuscles = body.secondaryMuscles;
     if (body.equipment !== undefined) updates.equipment = body.equipment;
     if (body.category !== undefined) updates.category = body.category;
-    if (body.gender !== undefined) updates.gender = body.gender;
     if (body.premium !== undefined) {
       const premium = parseBoolean(body.premium);
       if (premium === undefined) {
@@ -191,8 +253,11 @@ async function updateExercise(req, res, next) {
       }
       updates.exerciseType = exerciseType;
     }
-    if (body.videoUrl !== undefined) updates.videoUrl = body.videoUrl;
-    if (body.thumbnailUrl !== undefined) updates.thumbnailUrl = body.thumbnailUrl;
+    if (body.videoUrl !== undefined) updates.videomale = body.videoUrl;
+    if (body.videomale !== undefined) updates.videomale = body.videomale;
+    if (body.videofemale !== undefined) updates.videofemale = body.videofemale;
+    if (body.thumbnailmale !== undefined) updates.thumbnailmale = body.thumbnailmale;
+    if (body.thumbnailfemale !== undefined) updates.thumbnailfemale = body.thumbnailfemale;
 
     const nextSlug = updates.slug !== undefined ? updates.slug : exercise.slug;
     if (updates.slug !== undefined && updates.slug !== exercise.slug) {
@@ -202,19 +267,44 @@ async function updateExercise(req, res, next) {
       }
     }
 
-    const videoFile = req.files?.video?.[0];
-    const thumbFile = req.files?.thumbnail?.[0];
-    if (videoFile) {
-      updates.videoUrl = await gcsupload(
-        nextSlug,
-        withForcedOriginalName(videoFile, "video.mp4"),
+    const maleVideoFile = req.files?.videomale?.[0];
+    const femaleVideoFile = req.files?.videofemale?.[0];
+    const thumbMaleFile = req.files?.thumbnailmale?.[0];
+    const thumbFemaleFile = req.files?.thumbnailfemale?.[0];
+    const pathMen = () => exerciseGenderFolder(nextSlug, EXERCISE_GCS_MEN);
+    const pathFemale = () => exerciseGenderFolder(nextSlug, EXERCISE_GCS_FEMALE);
+
+    if (maleVideoFile) {
+      updates.videomale = await gcsupload(
+        pathMen(),
+        withForcedOriginalName(maleVideoFile, "video.mp4"),
         false
       );
     }
-    if (thumbFile) {
-      updates.thumbnailUrl = await gcsupload(
-        nextSlug,
-        withForcedOriginalName(thumbFile, "image.jpg"),
+    if (femaleVideoFile) {
+      updates.videofemale = await gcsupload(
+        pathFemale(),
+        withForcedOriginalName(femaleVideoFile, "video.mp4"),
+        false
+      );
+    }
+    if (thumbMaleFile) {
+      updates.thumbnailmale = await gcsupload(
+        pathMen(),
+        withForcedOriginalName(
+          thumbMaleFile,
+          `thumbnail.${extFromMime(thumbMaleFile.mimetype)}`
+        ),
+        false
+      );
+    }
+    if (thumbFemaleFile) {
+      updates.thumbnailfemale = await gcsupload(
+        pathFemale(),
+        withForcedOriginalName(
+          thumbFemaleFile,
+          `thumbnail.${extFromMime(thumbFemaleFile.mimetype)}`
+        ),
         false
       );
     }
@@ -280,7 +370,6 @@ async function getAllExercises(req, res, next) {
   try {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
-    const gender = (req.query.gender || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
     const premium = parseBoolean(req.query.premium);
 
@@ -294,14 +383,13 @@ async function getAllExercises(req, res, next) {
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
-    if (gender) filter.gender = gender;
     if (exerciseType) filter.exerciseType = exerciseType;
     if (premium !== undefined) filter.premium = premium;
 
     const exercises = await Exercise.find(filter)
       .sort({ createdAt: -1 })
       .select(
-        "_id title slug muscleGroup thumbnailUrl equipment category gender premium difficulty exerciseType"
+        "_id title slug muscleGroup videomale videofemale thumbnailmale thumbnailfemale equipment category premium difficulty exerciseType"
       );
     return res.json({ ok: true, data: exercises });
   } catch (err) {
@@ -310,7 +398,7 @@ async function getAllExercises(req, res, next) {
 }
 
 const LIST_SELECT =
-  "_id title slug muscleGroup thumbnailUrl secondaryMuscles equipment category gender premium difficulty exerciseType";
+  "_id title slug muscleGroup videomale videofemale thumbnailmale thumbnailfemale secondaryMuscles equipment category premium difficulty exerciseType";
 
 async function getExerciseByCategory(req, res, next) {
   try {
@@ -345,7 +433,6 @@ async function getExercisesByFilter(req, res, next) {
   try {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
-    const gender = (req.query.gender || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
     const premium = parseBoolean(req.query.premium);
 
@@ -359,7 +446,6 @@ async function getExercisesByFilter(req, res, next) {
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
-    if (gender) filter.gender = gender;
     if (exerciseType) filter.exerciseType = exerciseType;
     if (premium !== undefined) filter.premium = premium;
 

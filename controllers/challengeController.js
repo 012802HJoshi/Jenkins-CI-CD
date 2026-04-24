@@ -5,11 +5,26 @@ const { gcsupload } = require("../config/gcsupload");
 const { gcsdelete } = require("../config/gcsdelete");
 
 // GCS folder prefix for challenge plan uploads: challenges_plan/<slug>/
-const CHALLENGE_PLAN_GCS_PREFIX = "challenges_plan";
+const CHALLENGE_PLAN_GCS_PREFIX = "challenges";
 
 function challengeGcsFolder(slug) {
   const s = String(slug || "").trim();
   return `${CHALLENGE_PLAN_GCS_PREFIX}/${s}`;
+}
+
+function parseBoolean(value) {
+  if (value == null) return undefined;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return undefined;
 }
 
 function withForcedOriginalName(file, forcedName) {
@@ -143,6 +158,14 @@ async function createChallenge(req, res, next) {
       );
     }
 
+    if (Object.prototype.hasOwnProperty.call(payloadWithRefs, "premium")) {
+      const premium = parseBoolean(payloadWithRefs.premium);
+      if (premium === undefined) {
+        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+      }
+      payloadWithRefs.premium = premium;
+    }
+
     const challenge = await Challenge.create(payloadWithRefs);
     return res.status(201).json({ ok: true, data: challenge });
   } catch (err) {
@@ -152,10 +175,18 @@ async function createChallenge(req, res, next) {
 
 async function listChallenges(req, res, next) {
   try {
-    const challenges = await Challenge.find()
+    const premium = parseBoolean(req.query.premium);
+    if (req.query.premium !== undefined && premium === undefined) {
+      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    }
+
+    const filter = {};
+    if (premium !== undefined) filter.premium = premium;
+
+    const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal difficulty daysPerWeek weeks bannerUrl imageUrl");
+      .select("_id slug name goal premium difficulty daysPerWeek weeks bannerUrl imageUrl");
     return res.json({ ok: true, data: challenges });
   } catch (err) {
     return next(err);
@@ -174,10 +205,18 @@ async function getChallengesByDifficulty(req, res, next) {
       });
     }
 
-    const challenges = await Challenge.find({ difficulty })
+    const premium = parseBoolean(req.query.premium);
+    if (req.query.premium !== undefined && premium === undefined) {
+      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    }
+
+    const filter = { difficulty };
+    if (premium !== undefined) filter.premium = premium;
+
+    const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal difficulty daysPerWeek weeks bannerUrl imageUrl")
+      .select("_id slug name goal premium difficulty daysPerWeek weeks bannerUrl imageUrl")
       .lean();
 
     return res.json({ ok: true, data: challenges });

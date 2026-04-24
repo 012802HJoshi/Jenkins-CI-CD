@@ -31,6 +31,7 @@ const ChallengeSchema = new mongoose.Schema(
       enum: ["weight_loss", "muscle_building", "stay_fit", "mobility_relax"],
       default: "muscle_building",
     },
+    premium: { type: Boolean, default: false },
     difficulty: {
       type: String,
       enum: ["beginner", "intermediate", "advanced"],

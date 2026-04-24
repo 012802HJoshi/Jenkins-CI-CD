@@ -16,8 +16,10 @@ const router = express.Router();
 router.post(
   "/",
   upload.fields([
-    { name: "video", maxCount: 1 },
-    { name: "thumbnail", maxCount: 1 },
+    { name: "videomale", maxCount: 1 },
+    { name: "videofemale", maxCount: 1 },
+    { name: "thumbnailmale", maxCount: 1 },
+    { name: "thumbnailfemale", maxCount: 1 },
   ]),
   createExercise
 );
@@ -34,8 +36,10 @@ router.get("/:id", getExerciseById);
 router.patch(
   "/:id",
   upload.fields([
-    { name: "video", maxCount: 1 },
-    { name: "thumbnail", maxCount: 1 },
+    { name: "videomale", maxCount: 1 },
+    { name: "videofemale", maxCount: 1 },
+    { name: "thumbnailmale", maxCount: 1 },
+    { name: "thumbnailfemale", maxCount: 1 },
   ]),
   updateExercise
 );

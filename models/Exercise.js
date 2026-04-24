@@ -11,16 +11,21 @@ const ExerciseSchema = new mongoose.Schema(
     secondaryMuscles: { type: String, default: "" },
     equipment: { type: String, default: "" },
     category: { type: String, default: "" },
-    gender: { type: String, enum: ["men", "women", "all"], default: "all" },
     premium: { type: Boolean, default: false },
     difficulty: {
       type: String,
       enum: ["beginner", "intermediate", "advanced"],
       default: "beginner",
     },
-    exerciseType: { type: String, enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit"], default: "strength" },
-    video: { type: String, default: "" },
-    thumbnail: { type: String, default: "" },
+    exerciseType: {
+      type: String,
+      enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit"],
+      default: "strength",
+    },
+    videomale: { type: String, default: "" },
+    videofemale: { type: String, default: "" },
+    thumbnailmale: { type: String, default: "" },
+    thumbnailfemale: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -33,7 +38,7 @@ ExerciseSchema.index({ exerciseType: 1 });
 // Helps common combined filter: category + difficulty
 ExerciseSchema.index({ category: 1, difficulty: 1 });
 
-// Combined filter: category + exerciseType + difficulty + gender
-ExerciseSchema.index({ category: 1, exerciseType: 1, difficulty: 1, gender: 1 });
+// Combined filter: category + exerciseType + difficulty
+ExerciseSchema.index({ category: 1, exerciseType: 1, difficulty: 1 });
 
 module.exports = mongoose.model("Exercise", ExerciseSchema);

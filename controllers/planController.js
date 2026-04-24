@@ -11,6 +11,21 @@ function planGcsFolder(slug) {
   return `${PLAN_GCS_PREFIX}/${s}`;
 }
 
+function parseBoolean(value) {
+  if (value == null) return undefined;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return true;
+  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
 function withForcedOriginalName(file, forcedName) {
   if (!file) return file;
   return { ...file, originalname: forcedName };
@@ -266,6 +281,11 @@ async function createPlan(req, res, next) {
       });
     }
 
+    const premium = parseBoolean(body.premium);
+    if (body.premium !== undefined && premium === undefined) {
+      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    }
+
     const plan = await Plan.create({
       name,
       slug,
@@ -277,6 +297,7 @@ async function createPlan(req, res, next) {
       duration,
       numberofExercises,
       exercises,
+      ...(premium !== undefined ? { premium } : {}),
     });
 
     return res.status(201).json({ ok: true, data: plan });
@@ -294,7 +315,7 @@ async function getAPlanById(req, res, next) {
 
     const plan = await Plan.findById(id).populate(
       "exercises.exercise",
-      "title slug muscleGroup equipment category difficulty thumbnail video"
+      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale"
     );
 
     if (!plan) {
@@ -332,10 +353,16 @@ async function getAllPlans(req, res, next) {
       filter.goal = goal;
     }
 
+    const premium = parseBoolean(req.query.premium);
+    if (req.query.premium !== undefined && premium === undefined) {
+      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    }
+    if (premium !== undefined) filter.premium = premium;
+
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
       .select(
-        "name slug description difficulty goal bannerImage squareImage duration numberofExercises exercises"
+        "name slug description difficulty goal premium bannerImage squareImage duration numberofExercises exercises"
       )
       .lean();
 
@@ -371,10 +398,18 @@ async function getPlansByFilter(req, res, next) {
       });
     }
 
-    const plans = await Plan.find({ difficulty, goal })
+    const premium = parseBoolean(req.query.premium);
+    if (req.query.premium !== undefined && premium === undefined) {
+      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    }
+
+    const filter = { difficulty, goal };
+    if (premium !== undefined) filter.premium = premium;
+
+    const plans = await Plan.find(filter)
       .sort({ name: 1 })
       .select(
-        "name slug description difficulty goal bannerImage squareImage duration numberofExercises exercises"
+        "name slug description difficulty goal premium bannerImage squareImage duration numberofExercises exercises"
       )
       .lean();
 
@@ -445,6 +480,14 @@ async function updatePlan(req, res, next) {
         });
       }
       updates.goal = g;
+    }
+
+    if (body.premium !== undefined) {
+      const p = parseBoolean(body.premium);
+      if (p === undefined) {
+        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+      }
+      updates.premium = p;
     }
 
     if (body.duration !== undefined) {
@@ -520,7 +563,7 @@ async function updatePlan(req, res, next) {
 
     const populated = await Plan.findById(plan._id).populate(
       "exercises.exercise",
-      "title slug muscleGroup equipment category difficulty thumbnail video"
+      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale"
     );
 
     return res.json({ ok: true, data: populated });
