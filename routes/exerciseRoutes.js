@@ -5,8 +5,7 @@ const {
   deleteExerciseFolder,
   getExerciseById,
   getAllExercises,
-  getExerciseByCategory,
-  getExerciseByExerciseType,
+  getExerciseByCategoryAndDifficulty,
   getExercisesByFilter,
 } = require("../controllers/exerciseController");
 const { upload } = require("../middleware/upload");
@@ -27,8 +26,8 @@ router.post(
 // Filters (keep before "/:id" — "/filter" must exist or "filter" is treated as :id and returns 400)
 router.get("/filter", getExercisesByFilter);
 router.get("/filters", getExercisesByFilter);
-router.get("/category/:category", getExerciseByCategory); // /category/Legs
-router.get("/exercise-type/:exerciseType", getExerciseByExerciseType); // e.g. /exercise-type/strength
+// Matches index { category, difficulty }; other combos use GET / or /filter with query params
+router.get("/category/:category/difficulty/:difficulty", getExerciseByCategoryAndDifficulty);
 
 router.get("/", getAllExercises);
 router.get("/:id", getExerciseById);

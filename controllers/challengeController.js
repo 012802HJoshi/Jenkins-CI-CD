@@ -102,14 +102,7 @@ async function attachExerciseReferences(payload) {
 
 async function createChallenge(req, res, next) {
   try {
-    let payload = req.body?.data && typeof req.body.data === "object" ? req.body.data : req.body;
-    if (typeof req.body?.data === "string") {
-      try {
-        payload = JSON.parse(req.body.data);
-      } catch {
-        payload = req.body;
-      }
-    }
+    const payload = req.body && typeof req.body === "object" ? req.body : {};
 
     const refsResult = await attachExerciseReferences(payload);
     if (!refsResult.ok) {
@@ -143,7 +136,7 @@ async function createChallenge(req, res, next) {
 
     if (thumbFile) {
       const ext = extFromMime(thumbFile.mimetype);
-      payloadWithRefs.bannerUrl = await gcsupload(
+      payloadWithRefs.banner = await gcsupload(
         folder,
         withForcedOriginalName(thumbFile, `thumbnail.${ext}`),
         false
@@ -151,7 +144,7 @@ async function createChallenge(req, res, next) {
     }
     if (imageFile) {
       const ext = extFromMime(imageFile.mimetype);
-      payloadWithRefs.imageUrl = await gcsupload(
+      payloadWithRefs.image = await gcsupload(
         folder,
         withForcedOriginalName(imageFile, `image.${ext}`),
         false
@@ -173,27 +166,49 @@ async function createChallenge(req, res, next) {
   }
 }
 
+const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
+const CHALLENGE_GOALS = new Set(["weight_loss", "muscle_building", "stay_fit", "mobility_relax"]);
+
 async function listChallenges(req, res, next) {
   try {
-    const premium = parseBoolean(req.query.premium);
-    if (req.query.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    const difficulty = String(req.query.difficulty || "").trim().toLowerCase();
+    const goal = String(req.query.goal || "").trim();
+    if (goal && !difficulty) {
+      return res.status(400).json({
+        ok: false,
+        message: "difficulty is required when filtering by goal (indexed with difficulty)",
+      });
+    }
+    if (difficulty) {
+      if (!CHALLENGE_DIFFICULTIES.has(difficulty)) {
+        return res.status(400).json({
+          ok: false,
+          message: "difficulty must be one of: beginner, intermediate, advanced",
+        });
+      }
+    }
+    if (goal) {
+      if (!CHALLENGE_GOALS.has(goal)) {
+        return res.status(400).json({
+          ok: false,
+          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+        });
+      }
     }
 
     const filter = {};
-    if (premium !== undefined) filter.premium = premium;
+    if (difficulty) filter.difficulty = difficulty;
+    if (goal) filter.goal = goal;
 
     const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal premium difficulty daysPerWeek weeks bannerUrl imageUrl");
+      .select("_id slug name goal premium difficulty daysPerWeek weeks banner image");
     return res.json({ ok: true, data: challenges });
   } catch (err) {
     return next(err);
   }
 }
-
-const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 
 async function getChallengesByDifficulty(req, res, next) {
   try {
@@ -205,18 +220,23 @@ async function getChallengesByDifficulty(req, res, next) {
       });
     }
 
-    const premium = parseBoolean(req.query.premium);
-    if (req.query.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    const goal = String(req.query.goal || "").trim();
+    if (goal) {
+      if (!CHALLENGE_GOALS.has(goal)) {
+        return res.status(400).json({
+          ok: false,
+          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+        });
+      }
     }
 
     const filter = { difficulty };
-    if (premium !== undefined) filter.premium = premium;
+    if (goal) filter.goal = goal;
 
     const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal premium difficulty daysPerWeek weeks bannerUrl imageUrl")
+      .select("_id slug name goal premium difficulty daysPerWeek weeks banner image")
       .lean();
 
     return res.json({ ok: true, data: challenges });

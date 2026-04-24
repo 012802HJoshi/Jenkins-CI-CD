@@ -30,15 +30,8 @@ const ExerciseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Index for filter queries (e.g. find({ category: "Legs" })). No enum needed—frontend sends allowed values.
-ExerciseSchema.index({ category: 1 });
-
-ExerciseSchema.index({ exerciseType: 1 });
-
-// Helps common combined filter: category + difficulty
 ExerciseSchema.index({ category: 1, difficulty: 1 });
 
-// Combined filter: category + exerciseType + difficulty
 ExerciseSchema.index({ category: 1, exerciseType: 1, difficulty: 1 });
 
 module.exports = mongoose.model("Exercise", ExerciseSchema);

@@ -46,7 +46,7 @@ const ChallengeSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-ChallengeSchema.index({ difficulty: 1 });
+ChallengeSchema.index({ difficulty: 1, goal: 1 });
 
 // Keep existing "workouts" collection so data created with the old Workout model stays compatible.
 module.exports = mongoose.model("Challenge", ChallengeSchema, "workouts");

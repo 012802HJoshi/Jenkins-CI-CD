@@ -136,11 +136,7 @@ async function createExercise(req, res, next) {
     const pathFemale = () => exerciseGenderFolder(slug, EXERCISE_GCS_FEMALE);
 
     const bodyVideomale =
-      body.videomale != null && String(body.videomale).trim() !== ""
-        ? body.videomale
-        : body.videoUrl != null
-          ? body.videoUrl
-          : videomaleFromBody;
+      body.videomale != null && String(body.videomale).trim() !== "" ? body.videomale : videomaleFromBody;
     const bodyVideofemale =
       body.videofemale != null && String(body.videofemale).trim() !== "" ? body.videofemale : videofemaleFromBody;
 
@@ -253,7 +249,6 @@ async function updateExercise(req, res, next) {
       }
       updates.exerciseType = exerciseType;
     }
-    if (body.videoUrl !== undefined) updates.videomale = body.videoUrl;
     if (body.videomale !== undefined) updates.videomale = body.videomale;
     if (body.videofemale !== undefined) updates.videofemale = body.videofemale;
     if (body.thumbnailmale !== undefined) updates.thumbnailmale = body.thumbnailmale;
@@ -371,20 +366,25 @@ async function getAllExercises(req, res, next) {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
-    const premium = parseBoolean(req.query.premium);
 
     if (req.query.exerciseType !== undefined && exerciseType === undefined) {
       return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
     }
-    if (req.query.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    if (difficulty && !category) {
+      return res
+        .status(400)
+        .json({ ok: false, message: "category is required when filtering by difficulty (indexed with category)" });
+    }
+    if (exerciseType && !category) {
+      return res
+        .status(400)
+        .json({ ok: false, message: "category is required when filtering by exerciseType (indexed with category)" });
     }
 
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
     if (exerciseType) filter.exerciseType = exerciseType;
-    if (premium !== undefined) filter.premium = premium;
 
     const exercises = await Exercise.find(filter)
       .sort({ createdAt: -1 })
@@ -400,26 +400,23 @@ async function getAllExercises(req, res, next) {
 const LIST_SELECT =
   "_id title slug muscleGroup videomale videofemale thumbnailmale thumbnailfemale secondaryMuscles equipment category premium difficulty exerciseType";
 
-async function getExerciseByCategory(req, res, next) {
+const EXERCISE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
+
+/** Matches index { category: 1, difficulty: 1 }. */
+async function getExerciseByCategoryAndDifficulty(req, res, next) {
   try {
     const category = (req.params.category || "").trim();
-    const exercises = await Exercise.find({ category })
-      .sort({ createdAt: -1 })
-      .select(LIST_SELECT)
-      .lean();
-    return res.json({ ok: true, data: exercises });
-  } catch (err) {
-    return next(err);
-  }
-}
-
-async function getExerciseByExerciseType(req, res, next) {
-  try {
-    const exerciseType = parseExerciseType(req.params.exerciseType);
-    if (exerciseType === undefined) {
-      return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
+    const difficulty = String(req.params.difficulty || "").trim().toLowerCase();
+    if (!category) {
+      return res.status(400).json({ ok: false, message: "category is required" });
     }
-    const exercises = await Exercise.find({ exerciseType })
+    if (!difficulty || !EXERCISE_DIFFICULTIES.has(difficulty)) {
+      return res.status(400).json({
+        ok: false,
+        message: "difficulty must be one of: beginner, intermediate, advanced",
+      });
+    }
+    const exercises = await Exercise.find({ category, difficulty })
       .sort({ createdAt: -1 })
       .select(LIST_SELECT)
       .lean();
@@ -434,20 +431,25 @@ async function getExercisesByFilter(req, res, next) {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
-    const premium = parseBoolean(req.query.premium);
 
     if (req.query.exerciseType !== undefined && exerciseType === undefined) {
       return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
     }
-    if (req.query.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    if (difficulty && !category) {
+      return res
+        .status(400)
+        .json({ ok: false, message: "category is required when filtering by difficulty (indexed with category)" });
+    }
+    if (exerciseType && !category) {
+      return res
+        .status(400)
+        .json({ ok: false, message: "category is required when filtering by exerciseType (indexed with category)" });
     }
 
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
     if (exerciseType) filter.exerciseType = exerciseType;
-    if (premium !== undefined) filter.premium = premium;
 
     const exercises = await Exercise.find(filter)
       .sort({ createdAt: -1 })
@@ -466,7 +468,6 @@ module.exports = {
   deleteExerciseFolder,
   getExerciseById,
   getAllExercises,
-  getExerciseByCategory,
-  getExerciseByExerciseType,
+  getExerciseByCategoryAndDifficulty,
   getExercisesByFilter,
 };

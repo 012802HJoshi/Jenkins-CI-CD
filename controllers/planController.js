@@ -40,15 +40,8 @@ function extFromMime(mimetype) {
 }
 
 function getPayload(req) {
-  let payload = req.body?.data && typeof req.body.data === "object" ? req.body.data : req.body;
-  if (typeof req.body?.data === "string") {
-    try {
-      payload = JSON.parse(req.body.data);
-    } catch {
-      payload = req.body;
-    }
-  }
-  return payload && typeof payload === "object" ? payload : {};
+  const p = req.body;
+  return p && typeof p === "object" ? p : {};
 }
 
 const PLAN_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
@@ -344,6 +337,12 @@ async function getAllPlans(req, res, next) {
       filter.difficulty = difficulty;
     }
     if (goal) {
+      if (!difficulty) {
+        return res.status(400).json({
+          ok: false,
+          message: "difficulty is required when filtering by goal (indexed with difficulty)",
+        });
+      }
       if (!PLAN_GOALS.has(goal)) {
         return res.status(400).json({
           ok: false,
@@ -352,12 +351,6 @@ async function getAllPlans(req, res, next) {
       }
       filter.goal = goal;
     }
-
-    const premium = parseBoolean(req.query.premium);
-    if (req.query.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
-    }
-    if (premium !== undefined) filter.premium = premium;
 
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
@@ -398,13 +391,7 @@ async function getPlansByFilter(req, res, next) {
       });
     }
 
-    const premium = parseBoolean(req.query.premium);
-    if (req.query.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
-    }
-
     const filter = { difficulty, goal };
-    if (premium !== undefined) filter.premium = premium;
 
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
