@@ -19,7 +19,7 @@ const ExerciseSchema = new mongoose.Schema(
     },
     exerciseType: {
       type: String,
-      enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit"],
+      enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit", "warmup"],
       default: "strength",
     },
     videomale: { type: String, default: "" },

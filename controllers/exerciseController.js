@@ -370,16 +370,6 @@ async function getAllExercises(req, res, next) {
     if (req.query.exerciseType !== undefined && exerciseType === undefined) {
       return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
     }
-    if (difficulty && !category) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "category is required when filtering by difficulty (indexed with category)" });
-    }
-    if (exerciseType && !category) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "category is required when filtering by exerciseType (indexed with category)" });
-    }
 
     const filter = {};
     if (category) filter.category = category;
@@ -435,15 +425,13 @@ async function getExercisesByFilter(req, res, next) {
     if (req.query.exerciseType !== undefined && exerciseType === undefined) {
       return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
     }
-    if (difficulty && !category) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "category is required when filtering by difficulty (indexed with category)" });
-    }
-    if (exerciseType && !category) {
-      return res
-        .status(400)
-        .json({ ok: false, message: "category is required when filtering by exerciseType (indexed with category)" });
+
+    const hasFilter = Boolean(category) || Boolean(difficulty) || exerciseType !== undefined;
+    if (!hasFilter) {
+      return res.status(400).json({
+        ok: false,
+        message: "at least one of category, difficulty, or exerciseType is required",
+      });
     }
 
     const filter = {};
