@@ -39,13 +39,44 @@ function extFromMime(mimetype) {
   return "jpg";
 }
 
+/** Multipart sends nested structures as JSON strings; parse before Mongoose cast. */
+function normalizeWeeklyScheduleInput(raw) {
+  if (raw == null) {
+    return { ok: true, arr: [] };
+  }
+  if (Array.isArray(raw)) {
+    return { ok: true, arr: raw };
+  }
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return { ok: true, arr: [] };
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        return { ok: false, status: 400, message: "weeklySchedule must be a JSON array" };
+      }
+      return { ok: true, arr: parsed };
+    } catch {
+      return { ok: false, status: 400, message: "weeklySchedule must be valid JSON" };
+    }
+  }
+  return { ok: false, status: 400, message: "weeklySchedule must be an array or JSON string" };
+}
+
 /**
  * Resolves exerciseId from exerciseSlug and validates every slug exists in Exercise.
  * @returns {{ ok: true, payload: object } | { ok: false, status: number, message: string, missing?: string[] }}
  */
 async function attachExerciseReferences(payload) {
   const normalized = { ...payload };
-  const weeklySchedule = Array.isArray(payload?.weeklySchedule) ? payload.weeklySchedule : [];
+  const wsNorm = normalizeWeeklyScheduleInput(normalized.weeklySchedule);
+  if (!wsNorm.ok) {
+    return { ok: false, status: wsNorm.status, message: wsNorm.message };
+  }
+  normalized.weeklySchedule = wsNorm.arr;
+  const weeklySchedule = wsNorm.arr;
 
   for (const day of weeklySchedule) {
     const exercises = Array.isArray(day?.exercises) ? day.exercises : [];
