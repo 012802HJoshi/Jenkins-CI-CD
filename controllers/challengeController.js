@@ -131,8 +131,11 @@ async function createChallenge(req, res, next) {
     }
 
     const folder = challengeGcsFolder(slug);
-    const thumbFile = req.files?.thumbnail?.[0];
-    const imageFile = req.files?.image?.[0];
+    const thumbFile =
+      req.files?.thumbnail?.[0] ||
+      req.files?.banner?.[0] ||
+      req.files?.bannerImage?.[0];
+    const imageFile = req.files?.image?.[0] || req.files?.squareImage?.[0];
 
     if (thumbFile) {
       const ext = extFromMime(thumbFile.mimetype);

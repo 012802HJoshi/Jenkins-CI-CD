@@ -19,7 +19,10 @@ router.post(
   "/",
   upload.fields([
     { name: "thumbnail", maxCount: 1 },
+    { name: "banner", maxCount: 1 },
+    { name: "bannerImage", maxCount: 1 },
     { name: "image", maxCount: 1 },
+    { name: "squareImage", maxCount: 1 },
   ]),
   createChallenge
 );
