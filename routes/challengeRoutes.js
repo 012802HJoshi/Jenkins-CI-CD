@@ -12,6 +12,9 @@ const { upload } = require("../middleware/upload");
 const router = express.Router();
 
 router.get("/", listChallenges);
+// Same query behavior as GET / — keep before "/:id" so "filter" is not treated as :id
+router.get("/filter", listChallenges);
+router.get("/filters", listChallenges);
 router.get("/difficulty/:difficulty", getChallengesByDifficulty);
 router.get("/slug/:slug", getChallengeBySlug);
 router.get("/:id", getChallengeById);
