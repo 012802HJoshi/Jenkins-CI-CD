@@ -39,6 +39,13 @@ const ChallengeSchema = new mongoose.Schema(
     },
     daysPerWeek: { type: Number, default: 0, min: 0 },
     weeks: { type: Number, default: 0, min: 0 },
+    /** When absent or "weekly", `weeklySchedule` is a repeating week template (legacy). When "sequential", it is day 1…N in order (fixed-length plan). */
+    scheduleMode: {
+      type: String,
+      enum: ["weekly", "sequential"],
+    },
+    /** Length in days for sequential plans (e.g. 28, 15). Omit for legacy weekly challenges. */
+    durationDays: { type: Number, min: 1 },
     weeklySchedule: { type: [ChallengeDaySchema], default: [] },
     banner: { type: String, default: "", trim: true },
     image: { type: String, default: "", trim: true },

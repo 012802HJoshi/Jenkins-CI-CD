@@ -450,6 +450,18 @@ async function getExercisesByFilter(req, res, next) {
   }
 }
 
+async function getAlphaSortedExercises(req, res) {
+  try {
+    const exercises = await Exercise.find({})
+      .sort({ title: 1 })
+      .select(LIST_SELECT)
+      .lean();
+    return res.json({ ok: true, data: exercises });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   createExercise,
   updateExercise,
@@ -458,4 +470,5 @@ module.exports = {
   getAllExercises,
   getExerciseByCategoryAndDifficulty,
   getExercisesByFilter,
+  getAlphaSortedExercises
 };

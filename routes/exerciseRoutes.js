@@ -7,6 +7,7 @@ const {
   getAllExercises,
   getExerciseByCategoryAndDifficulty,
   getExercisesByFilter,
+  getAlphaSortedExercises
 } = require("../controllers/exerciseController");
 const { upload } = require("../middleware/upload");
 
@@ -31,6 +32,8 @@ router.get("/category/:category/difficulty/:difficulty", getExerciseByCategoryAn
 
 router.get("/", getAllExercises);
 router.get("/:id", getExerciseById);
+
+router.get('/sorted/alphabetical', getAlphaSortedExercises);
 
 router.patch(
   "/:id",
