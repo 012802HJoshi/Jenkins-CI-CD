@@ -32,6 +32,6 @@ const ExerciseSchema = new mongoose.Schema(
 
 ExerciseSchema.index({ category: 1, difficulty: 1 });
 
-ExerciseSchema.index({ category: 1, exerciseType: 1, difficulty: 1 });
+ExerciseSchema.index({ category: 1, exerciseType: 1, difficulty: 1, equipment: 1 });
 
 module.exports = mongoose.model("Exercise", ExerciseSchema);

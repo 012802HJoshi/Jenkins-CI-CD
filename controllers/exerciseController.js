@@ -462,6 +462,7 @@ async function getAlphaSortedExercises(req, res) {
   }
 }
 
+
 module.exports = {
   createExercise,
   updateExercise,
