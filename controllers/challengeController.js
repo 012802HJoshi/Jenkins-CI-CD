@@ -219,6 +219,13 @@ async function resolveExerciseSlugs(weeks) {
   return { ok: true, slugMeta };
 }
 
+function sendError(res, err) {
+  if (err?.code === 11000) {
+    return res.status(409).json({ ok: false, message: "Duplicate key error", details: err?.keyValue || {} });
+  }
+  return res.status(err?.status || 500).json({ ok: false, message: err?.message || "Server error" });
+}
+
 /** Strip exercises[] off weeks; produce metadata-only weeks for the Challenge doc. */
 function buildMetaWeeks(weeks) {
   return weeks.map((w) => ({
@@ -318,7 +325,7 @@ async function uploadBanners({ folder, files, body }) {
   return result;
 }
 
-async function createChallenge(req, res, next) {
+async function createChallenge(req, res) {
   try {
     const body = req.body && typeof req.body === "object" ? req.body : {};
 
@@ -429,11 +436,11 @@ async function createChallenge(req, res, next) {
 
     return res.status(201).json({ ok: true, data: created });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function updateChallenge(req, res, next) {
+async function updateChallenge(req, res) {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -573,11 +580,11 @@ async function updateChallenge(req, res, next) {
 
     return res.json({ ok: true, data: challenge });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function listChallenges(req, res, next) {
+async function listChallenges(req, res) {
   try {
     const difficulty = String(req.query.difficulty || "").trim().toLowerCase();
     const goal = String(req.query.goal || "").trim();
@@ -611,11 +618,11 @@ async function listChallenges(req, res, next) {
       .lean();
     return res.json({ ok: true, data: challenges });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function getChallengesByDifficulty(req, res, next) {
+async function getChallengesByDifficulty(req, res) {
   try {
     const difficulty = String(req.params.difficulty || "").trim().toLowerCase();
     if (!difficulty || !CHALLENGE_DIFFICULTIES.has(difficulty)) {
@@ -643,11 +650,11 @@ async function getChallengesByDifficulty(req, res, next) {
       .lean();
     return res.json({ ok: true, data: challenges });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function getChallengeBySlug(req, res, next) {
+async function getChallengeBySlug(req, res) {
   try {
     const slug = String(req.params.slug || "").trim();
     if (!slug) return res.status(400).json({ ok: false, message: "slug is required" });
@@ -663,11 +670,11 @@ async function getChallengeBySlug(req, res, next) {
     const data = includeDays ? await mergeFullDays(challenge, populate) : challenge;
     return res.json({ ok: true, data });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function getChallengeById(req, res, next) {
+async function getChallengeById(req, res) {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -685,7 +692,7 @@ async function getChallengeById(req, res, next) {
     const data = includeDays ? await mergeFullDays(challenge, populate) : challenge;
     return res.json({ ok: true, data });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
@@ -708,7 +715,7 @@ async function getChallengeDayByChallenge(challengeId, dayParam, populate) {
   return { status: 200, body: { ok: true, data: doc } };
 }
 
-async function getChallengeDayBySlug(req, res, next) {
+async function getChallengeDayBySlug(req, res) {
   try {
     const slug = String(req.params.slug || "").trim();
     if (!slug) return res.status(400).json({ ok: false, message: "slug is required" });
@@ -722,11 +729,11 @@ async function getChallengeDayBySlug(req, res, next) {
     const result = await getChallengeDayByChallenge(challenge._id, req.params.day, populate);
     return res.status(result.status).json(result.body);
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function getChallengeDayById(req, res, next) {
+async function getChallengeDayById(req, res) {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -736,11 +743,11 @@ async function getChallengeDayById(req, res, next) {
     const result = await getChallengeDayByChallenge(id, req.params.day, populate);
     return res.status(result.status).json(result.body);
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function updateChallengeDay(req, res, next) {
+async function updateChallengeDay(req, res) {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -859,11 +866,11 @@ async function updateChallengeDay(req, res, next) {
 
     return res.json({ ok: true, data: dayDoc });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
-async function deleteChallenge(req, res, next) {
+async function deleteChallenge(req, res) {
   try {
     const { id } = req.params;
     if (!mongoose.isValidObjectId(id)) {
@@ -888,7 +895,7 @@ async function deleteChallenge(req, res, next) {
       data: { gcsPrefix: `${folderPrefix}/` },
     });
   } catch (err) {
-    return next(err);
+    return sendError(res, err);
   }
 }
 
