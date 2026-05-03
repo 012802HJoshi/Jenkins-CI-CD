@@ -1,11 +1,20 @@
 const Challenge = require("../models/Challenge");
+const ChallengeDay = require("../models/ChallengeDay");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
 const { gcsupload } = require("../config/gcsupload");
 const { gcsdelete } = require("../config/gcsdelete");
 
-// GCS folder prefix for challenge plan uploads: challenges_plan/<slug>/
+// GCS layout: challenges/<slug>/banner_male.<ext>, challenges/<slug>/banner_female.<ext>
 const CHALLENGE_PLAN_GCS_PREFIX = "challenges";
+const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
+const CHALLENGE_GOALS = new Set([
+  "weight_loss",
+  "muscle_building",
+  "stay_fit",
+  "mobility_relax",
+]);
+const MAX_DAYS_PER_WEEK = 7;
 
 function challengeGcsFolder(slug) {
   const s = String(slug || "").trim();
@@ -39,221 +48,389 @@ function extFromMime(mimetype) {
   return "jpg";
 }
 
-/** Multipart sends nested structures as JSON strings; parse before Mongoose cast. */
-function normalizeWeeklyScheduleInput(raw) {
-  if (raw == null) {
-    return { ok: true, arr: [] };
-  }
-  if (Array.isArray(raw)) {
-    return { ok: true, arr: raw };
-  }
+function parsePositiveInteger(value) {
+  if (value == null || value === "") return null;
+  const n = typeof value === "number" ? value : parseInt(String(value).trim(), 10);
+  if (!Number.isInteger(n) || n < 1) return null;
+  return n;
+}
+
+/** Multipart sends nested structures as JSON strings; parse before validating. */
+function parseWeeksInput(raw) {
+  if (raw == null) return { ok: true, weeks: undefined };
+  if (Array.isArray(raw)) return { ok: true, weeks: raw };
   if (typeof raw === "string") {
     const trimmed = raw.trim();
-    if (!trimmed) {
-      return { ok: true, arr: [] };
-    }
+    if (!trimmed) return { ok: true, weeks: undefined };
     try {
       const parsed = JSON.parse(trimmed);
       if (!Array.isArray(parsed)) {
-        return { ok: false, status: 400, message: "weeklySchedule must be a JSON array" };
+        return { ok: false, status: 400, message: "weeks must be a JSON array" };
       }
-      return { ok: true, arr: parsed };
+      return { ok: true, weeks: parsed };
     } catch {
-      return { ok: false, status: 400, message: "weeklySchedule must be valid JSON" };
+      return { ok: false, status: 400, message: "weeks must be valid JSON" };
     }
   }
-  return { ok: false, status: 400, message: "weeklySchedule must be an array or JSON string" };
+  return { ok: false, status: 400, message: "weeks must be an array or JSON string" };
 }
 
-const SCHEDULE_MODES = new Set(["weekly", "sequential"]);
-
-const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
-const CHALLENGE_GOALS = new Set(["weight_loss", "muscle_building", "stay_fit", "mobility_relax"]);
-
 /**
- * For sequential plans, ensures `durationDays` and `weeklySchedule` match (one block per calendar day 1…N).
- * @returns {{ ok: true } | { ok: false, status: number, message: string }}
+ * Enforces:
+ * - weekNumber sequence is exactly 1..weeks.length
+ * - non-last weeks have exactly 7 days; last week has 1..7 days
+ * - day values across all weeks cover 1..durationDays exactly (unique, no gaps)
+ * - each day has a positive integer `day` and a non-empty `name`
  */
-function validateSequentialSchedule(scheduleMode, durationDays, weeklySchedule) {
-  if (scheduleMode !== "sequential") {
-    return { ok: true };
+function validateWeeksStructure(durationDays, weeks) {
+  if (!Array.isArray(weeks) || weeks.length === 0) {
+    return { ok: false, status: 400, message: "weeks must be a non-empty array" };
   }
-  if (durationDays == null || typeof durationDays !== "number" || !Number.isInteger(durationDays) || durationDays < 1) {
-    return {
-      ok: false,
-      status: 400,
-      message: "scheduleMode sequential requires durationDays as a positive integer",
-    };
-  }
-  const days = Array.isArray(weeklySchedule) ? weeklySchedule : [];
-  if (days.length !== durationDays) {
-    return {
-      ok: false,
-      status: 400,
-      message: `sequential plans require weeklySchedule length (${days.length}) to equal durationDays (${durationDays})`,
-    };
-  }
-  const nums = days.map((d) => Number(d?.day)).filter((n) => Number.isInteger(n));
-  const expected = new Set([...Array(durationDays)].map((_, i) => i + 1));
-  if (nums.length !== durationDays) {
-    return { ok: false, status: 400, message: "each day in weeklySchedule must have a numeric day index" };
-  }
-  for (const n of nums) {
-    if (!expected.has(n)) {
+  let totalDays = 0;
+  for (let i = 0; i < weeks.length; i += 1) {
+    const w = weeks[i];
+    const wn = Number(w?.weekNumber);
+    if (!Number.isInteger(wn) || wn !== i + 1) {
       return {
         ok: false,
         status: 400,
-        message: `sequential weeklySchedule.day values must be exactly 1 through ${durationDays} (got invalid ${n})`,
+        message: `weeks[${i}].weekNumber must be ${i + 1} (got ${w?.weekNumber})`,
       };
     }
+    const days = Array.isArray(w?.days) ? w.days : [];
+    const isLast = i === weeks.length - 1;
+    if (!isLast && days.length !== MAX_DAYS_PER_WEEK) {
+      return {
+        ok: false,
+        status: 400,
+        message: `week ${wn} must contain exactly ${MAX_DAYS_PER_WEEK} days (only the last week may be partial)`,
+      };
+    }
+    if (days.length < 1 || days.length > MAX_DAYS_PER_WEEK) {
+      return {
+        ok: false,
+        status: 400,
+        message: `week ${wn} must contain 1..${MAX_DAYS_PER_WEEK} days (got ${days.length})`,
+      };
+    }
+    for (const d of days) {
+      const n = Number(d?.day);
+      if (!Number.isInteger(n) || n < 1) {
+        return {
+          ok: false,
+          status: 400,
+          message: `each day must have a positive integer "day" index (week ${wn})`,
+        };
+      }
+      const name = String(d?.name || "").trim();
+      if (!name) {
+        return {
+          ok: false,
+          status: 400,
+          message: `each day requires a non-empty "name" (week ${wn} day ${d?.day})`,
+        };
+      }
+    }
+    totalDays += days.length;
   }
-  if (new Set(nums).size !== durationDays) {
-    return { ok: false, status: 400, message: "weeklySchedule.day values must be unique for sequential plans" };
+  if (totalDays !== durationDays) {
+    return {
+      ok: false,
+      status: 400,
+      message: `total day count across weeks (${totalDays}) must equal durationDays (${durationDays})`,
+    };
+  }
+  const allDays = weeks.flatMap((w) => (Array.isArray(w.days) ? w.days : []));
+  const seen = new Set();
+  for (const d of allDays) {
+    const n = Number(d.day);
+    if (n < 1 || n > durationDays) {
+      return {
+        ok: false,
+        status: 400,
+        message: `day values must be in 1..${durationDays} (got ${n})`,
+      };
+    }
+    if (seen.has(n)) {
+      return { ok: false, status: 400, message: `duplicate day index ${n} across weeks` };
+    }
+    seen.add(n);
+  }
+  for (let n = 1; n <= durationDays; n += 1) {
+    if (!seen.has(n)) {
+      return {
+        ok: false,
+        status: 400,
+        message: `missing day ${n} in weeks (must cover 1..${durationDays})`,
+      };
+    }
   }
   return { ok: true };
 }
 
 /**
- * Resolves exerciseId from exerciseSlug and validates every slug exists in Exercise.
- * @returns {{ ok: true, payload: object } | { ok: false, status: number, message: string, missing?: string[] }}
+ * Walks weeks[].days[].exercises[], validates exerciseSlug presence, then resolves
+ * every unique slug to its Exercise {_id, duration} with one query. Duration is read
+ * from the Exercise (snapshot at create/update time); the API never accepts it from input.
  */
-async function attachExerciseReferences(payload) {
-  const normalized = { ...payload };
-  const wsNorm = normalizeWeeklyScheduleInput(normalized.weeklySchedule);
-  if (!wsNorm.ok) {
-    return { ok: false, status: wsNorm.status, message: wsNorm.message };
-  }
-  normalized.weeklySchedule = wsNorm.arr;
-  const weeklySchedule = wsNorm.arr;
-
-  for (const day of weeklySchedule) {
-    const exercises = Array.isArray(day?.exercises) ? day.exercises : [];
-    for (const item of exercises) {
-      const slug = String(item?.exerciseSlug || "").trim();
-      if (!slug) {
-        return {
-          ok: false,
-          status: 400,
-          message: "exerciseSlug is required for every exercise in weeklySchedule",
-        };
+async function resolveExerciseSlugs(weeks) {
+  const allSlugs = [];
+  for (const w of weeks) {
+    const days = Array.isArray(w?.days) ? w.days : [];
+    for (const d of days) {
+      const exercises = Array.isArray(d?.exercises) ? d.exercises : [];
+      for (const e of exercises) {
+        const slug = String(e?.exerciseSlug || "").trim();
+        if (!slug) {
+          return {
+            ok: false,
+            status: 400,
+            message: "exerciseSlug is required for every exercise in weeks",
+          };
+        }
+        allSlugs.push(slug);
       }
     }
   }
-
-  const allSlugs = weeklySchedule
-    .flatMap((day) => (Array.isArray(day?.exercises) ? day.exercises : []))
-    .map((item) => String(item?.exerciseSlug || "").trim())
-    .filter(Boolean);
-
-  let slugToId = new Map();
-  if (allSlugs.length) {
-    const uniqueSlugs = [...new Set(allSlugs)];
-    const matchedExercises = await Exercise.find({ slug: { $in: uniqueSlugs } }, { _id: 1, slug: 1 });
-    const matchedSet = new Set(matchedExercises.map((e) => e.slug));
-    const missing = uniqueSlugs.filter((s) => !matchedSet.has(s));
-
-    if (missing.length) {
-      return {
-        ok: false,
-        status: 400,
-        message: "one or more exercise slugs do not exist",
-        missing,
-      };
-    }
-
-    slugToId = new Map(matchedExercises.map((item) => [item.slug, item._id]));
+  if (allSlugs.length === 0) {
+    return { ok: true, slugMeta: new Map() };
   }
-
-  normalized.weeklySchedule = weeklySchedule.map((day) => {
-    const exercises = Array.isArray(day?.exercises) ? day.exercises : [];
+  const uniqueSlugs = [...new Set(allSlugs)];
+  const matched = await Exercise.find(
+    { slug: { $in: uniqueSlugs } },
+    { _id: 1, slug: 1, duration: 1, title: 1 }
+  );
+  const matchedSet = new Set(matched.map((e) => e.slug));
+  const missing = uniqueSlugs.filter((s) => !matchedSet.has(s));
+  if (missing.length) {
     return {
-      ...day,
-      exercises: exercises.map((item) => ({
-        ...item,
-        exerciseId: slugToId.get(String(item.exerciseSlug || "").trim()) || undefined,
-      })),
+      ok: false,
+      status: 400,
+      message: "one or more exercise slugs do not exist",
+      missing,
     };
-  });
-
-  let scheduleMode = normalized.scheduleMode;
-  if (scheduleMode != null && scheduleMode !== "") {
-    scheduleMode = String(scheduleMode).trim().toLowerCase();
-    if (!SCHEDULE_MODES.has(scheduleMode)) {
-      return {
-        ok: false,
-        status: 400,
-        message: "scheduleMode must be one of: weekly, sequential",
-      };
-    }
-    normalized.scheduleMode = scheduleMode;
-  } else {
-    delete normalized.scheduleMode;
   }
-
-  let durationDays = normalized.durationDays;
-  if (durationDays != null && durationDays !== "") {
-    const n = typeof durationDays === "number" ? durationDays : parseInt(String(durationDays).trim(), 10);
-    if (!Number.isInteger(n) || n < 1) {
-      return { ok: false, status: 400, message: "durationDays must be a positive integer" };
-    }
-    normalized.durationDays = n;
-  } else {
-    delete normalized.durationDays;
-  }
-
-  if (normalized.scheduleMode === "weekly" && normalized.durationDays != null) {
-    delete normalized.durationDays;
-  }
-
-  const effectiveMode = normalized.scheduleMode || (normalized.durationDays != null ? "sequential" : "weekly");
-  const seqCheck = validateSequentialSchedule(
-    effectiveMode,
-    normalized.durationDays,
-    normalized.weeklySchedule
+  const slugMeta = new Map(
+    matched.map((e) => [
+      e.slug,
+      { id: e._id, duration: Number(e.duration) || 0, title: String(e.title || "") },
+    ])
   );
-  if (!seqCheck.ok) {
-    return { ok: false, status: seqCheck.status, message: seqCheck.message };
-  }
-  if (effectiveMode === "sequential" && normalized.scheduleMode == null) {
-    normalized.scheduleMode = "sequential";
-  }
-
-  return { ok: true, payload: normalized };
+  return { ok: true, slugMeta };
 }
 
-function getPayload(req) {
-  const p = req.body;
-  return p && typeof p === "object" ? p : {};
+/** Strip exercises[] off weeks; produce metadata-only weeks for the Challenge doc. */
+function buildMetaWeeks(weeks) {
+  return weeks.map((w) => ({
+    weekNumber: Number(w.weekNumber),
+    days: (Array.isArray(w.days) ? w.days : []).map((d) => ({
+      day: Number(d.day),
+      name: String(d.name).trim(),
+      muscleGroups: Array.isArray(d.muscleGroups) ? d.muscleGroups.map(String) : [],
+      exerciseCount: Array.isArray(d.exercises) ? d.exercises.length : 0,
+    })),
+  }));
 }
 
-function touchesSchedule(body) {
-  return (
-    Object.prototype.hasOwnProperty.call(body, "weeklySchedule") ||
-    Object.prototype.hasOwnProperty.call(body, "scheduleMode") ||
-    Object.prototype.hasOwnProperty.call(body, "durationDays")
-  );
+/** Build full ChallengeDay docs (one per day) for insertion into the workout_days collection. */
+function buildDayDocs(challengeId, weeks, slugMeta) {
+  const docs = [];
+  for (const w of weeks) {
+    const weekNumber = Number(w.weekNumber);
+    const days = Array.isArray(w.days) ? w.days : [];
+    for (const d of days) {
+      const exercises = (Array.isArray(d.exercises) ? d.exercises : []).map((e) => {
+        const slug = String(e.exerciseSlug).trim();
+        const meta = slugMeta.get(slug) || {};
+        return {
+          exerciseId: meta.id,
+          slug,
+          // Title falls back to the Exercise's title if the client didn't supply an override.
+          title: String(e.title || meta.title || "").trim(),
+          sets: Number(e.sets) || 0,
+          reps: String(e.reps || "").trim(),
+          // Duration is always sourced from the Exercise; client-supplied duration is ignored.
+          duration: Number(meta.duration) || 0,
+        };
+      });
+      docs.push({
+        challengeId,
+        day: Number(d.day),
+        weekNumber,
+        name: String(d.name).trim(),
+        muscleGroups: Array.isArray(d.muscleGroups) ? d.muscleGroups.map(String) : [],
+        exercises,
+      });
+    }
+  }
+  return docs;
 }
 
 /**
- * Applies partial PATCH body onto existing challenge snapshot for schedule validation only.
+ * For ?includeDays=true, fetches all ChallengeDay docs for the challenge and merges
+ * full exercises[] back into the metadata weeks[].days[] structure.
  */
-function mergeChallengeSchedule(existing, body) {
-  return {
-    weeklySchedule: Object.prototype.hasOwnProperty.call(body, "weeklySchedule")
-      ? body.weeklySchedule
-      : existing.weeklySchedule,
-    scheduleMode: Object.prototype.hasOwnProperty.call(body, "scheduleMode") ? body.scheduleMode : existing.scheduleMode,
-    durationDays: Object.prototype.hasOwnProperty.call(body, "durationDays")
-      ? body.durationDays
-      : existing.durationDays,
-  };
+async function mergeFullDays(challenge, populate) {
+  const obj = challenge.toObject ? challenge.toObject() : challenge;
+  let q = ChallengeDay.find({ challengeId: obj._id }).sort({ day: 1 });
+  if (populate) {
+    q = q.populate("exercises.exerciseId", "title slug muscleGroup equipment thumbnailmale thumbnailfemale");
+  }
+  const dayDocs = await q.lean();
+  const dayMap = new Map(dayDocs.map((d) => [d.day, d]));
+  obj.weeks = (obj.weeks || []).map((w) => ({
+    ...w,
+    days: (w.days || []).map((meta) => {
+      const full = dayMap.get(meta.day);
+      return {
+        ...meta,
+        exercises: full?.exercises || [],
+      };
+    }),
+  }));
+  return obj;
 }
 
-function parseNonNegativeNumber(value) {
-  if (value == null || value === "") return null;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
+async function uploadBanners({ folder, files, body }) {
+  const result = {};
+  const maleFile = files?.banner_male?.[0];
+  const femaleFile = files?.banner_female?.[0];
+  if (maleFile) {
+    const ext = extFromMime(maleFile.mimetype);
+    result.banner_male = await gcsupload(
+      folder,
+      withForcedOriginalName(maleFile, `banner_male.${ext}`),
+      false
+    );
+  } else if (Object.prototype.hasOwnProperty.call(body, "banner_male")) {
+    result.banner_male = String(body.banner_male || "").trim();
+  }
+  if (femaleFile) {
+    const ext = extFromMime(femaleFile.mimetype);
+    result.banner_female = await gcsupload(
+      folder,
+      withForcedOriginalName(femaleFile, `banner_female.${ext}`),
+      false
+    );
+  } else if (Object.prototype.hasOwnProperty.call(body, "banner_female")) {
+    result.banner_female = String(body.banner_female || "").trim();
+  }
+  return result;
+}
+
+async function createChallenge(req, res, next) {
+  try {
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+
+    const name = String(body.name || "").trim();
+    if (!name) return res.status(400).json({ ok: false, message: "name is required" });
+
+    const slug = String(body.slug || "").trim();
+    if (!slug) return res.status(400).json({ ok: false, message: "slug is required" });
+
+    const durationDays = parsePositiveInteger(body.durationDays);
+    if (durationDays === null) {
+      return res
+        .status(400)
+        .json({ ok: false, message: "durationDays must be a positive integer" });
+    }
+
+    let goal;
+    if (body.goal != null && String(body.goal).trim() !== "") {
+      goal = String(body.goal).trim();
+      if (!CHALLENGE_GOALS.has(goal)) {
+        return res.status(400).json({
+          ok: false,
+          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+        });
+      }
+    }
+
+    let difficulty;
+    if (body.difficulty != null && String(body.difficulty).trim() !== "") {
+      difficulty = String(body.difficulty).trim();
+      if (!CHALLENGE_DIFFICULTIES.has(difficulty)) {
+        return res.status(400).json({
+          ok: false,
+          message: "difficulty must be one of: beginner, intermediate, advanced",
+        });
+      }
+    }
+
+    let premium;
+    if (Object.prototype.hasOwnProperty.call(body, "premium")) {
+      premium = parseBoolean(body.premium);
+      if (premium === undefined) {
+        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+      }
+    }
+
+    const wsResult = parseWeeksInput(body.weeks);
+    if (!wsResult.ok) {
+      return res.status(wsResult.status).json({ ok: false, message: wsResult.message });
+    }
+    const weeks = wsResult.weeks;
+    if (!weeks) {
+      return res.status(400).json({ ok: false, message: "weeks is required" });
+    }
+
+    const structCheck = validateWeeksStructure(durationDays, weeks);
+    if (!structCheck.ok) {
+      return res.status(structCheck.status).json({ ok: false, message: structCheck.message });
+    }
+
+    const refsResult = await resolveExerciseSlugs(weeks);
+    if (!refsResult.ok) {
+      return res.status(refsResult.status).json({
+        ok: false,
+        message: refsResult.message,
+        ...(refsResult.missing?.length ? { missing: refsResult.missing } : {}),
+      });
+    }
+
+    const existing = await Challenge.findOne({ slug }, { _id: 1 });
+    if (existing) {
+      return res.status(409).json({ ok: false, message: "slug already in use" });
+    }
+
+    const folder = challengeGcsFolder(slug);
+    const banners = await uploadBanners({ folder, files: req.files, body });
+
+    const metaWeeks = buildMetaWeeks(weeks);
+    const challengeBody = {
+      slug,
+      name,
+      durationDays,
+      weeks: metaWeeks,
+      ...(goal ? { goal } : {}),
+      ...(difficulty ? { difficulty } : {}),
+      ...(premium !== undefined ? { premium } : {}),
+      banner_male: banners.banner_male || "",
+      banner_female: banners.banner_female || "",
+    };
+
+    let created;
+    try {
+      created = await Challenge.create(challengeBody);
+      const dayDocs = buildDayDocs(created._id, weeks, refsResult.slugMeta);
+      if (dayDocs.length > 0) {
+        await ChallengeDay.insertMany(dayDocs, { ordered: true });
+      }
+    } catch (err) {
+      // Manual rollback: standalone MongoDB has no transactions.
+      if (created?._id) {
+        await Promise.allSettled([
+          Challenge.deleteOne({ _id: created._id }),
+          ChallengeDay.deleteMany({ challengeId: created._id }),
+        ]);
+      }
+      throw err;
+    }
+
+    return res.status(201).json({ ok: true, data: created });
+  } catch (err) {
+    return next(err);
+  }
 }
 
 async function updateChallenge(req, res, next) {
@@ -268,27 +445,21 @@ async function updateChallenge(req, res, next) {
       return res.status(404).json({ ok: false, message: "challenge not found" });
     }
 
-    const body = getPayload(req);
+    const body = req.body && typeof req.body === "object" ? req.body : {};
     const updates = {};
 
     if (Object.prototype.hasOwnProperty.call(body, "name")) {
       const n = String(body.name).trim();
-      if (!n) {
-        return res.status(400).json({ ok: false, message: "name cannot be empty" });
-      }
+      if (!n) return res.status(400).json({ ok: false, message: "name cannot be empty" });
       updates.name = n;
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "slug")) {
       const s = String(body.slug).trim();
-      if (!s) {
-        return res.status(400).json({ ok: false, message: "slug cannot be empty" });
-      }
+      if (!s) return res.status(400).json({ ok: false, message: "slug cannot be empty" });
       if (s !== challenge.slug) {
-        const taken = await Challenge.findOne({ slug: s, _id: { $ne: id } });
-        if (taken) {
-          return res.status(409).json({ ok: false, message: "slug already in use" });
-        }
+        const taken = await Challenge.findOne({ slug: s, _id: { $ne: id } }, { _id: 1 });
+        if (taken) return res.status(409).json({ ok: false, message: "slug already in use" });
       }
       updates.slug = s;
     }
@@ -306,9 +477,6 @@ async function updateChallenge(req, res, next) {
 
     if (Object.prototype.hasOwnProperty.call(body, "difficulty")) {
       const d = String(body.difficulty).trim();
-      if (!d) {
-        return res.status(400).json({ ok: false, message: "difficulty cannot be empty" });
-      }
       if (!CHALLENGE_DIFFICULTIES.has(d)) {
         return res.status(400).json({
           ok: false,
@@ -326,27 +494,36 @@ async function updateChallenge(req, res, next) {
       updates.premium = p;
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, "daysPerWeek")) {
-      const d = parseNonNegativeNumber(body.daysPerWeek);
-      if (d === null) {
-        return res.status(400).json({ ok: false, message: "daysPerWeek must be a non-negative number" });
+    // Schedule replacement: weeks + durationDays move together to keep invariants intact.
+    const touchesSchedule =
+      Object.prototype.hasOwnProperty.call(body, "weeks") ||
+      Object.prototype.hasOwnProperty.call(body, "durationDays");
+
+    let nextDayDocs = null;
+    if (touchesSchedule) {
+      const wsResult = parseWeeksInput(body.weeks);
+      if (!wsResult.ok) {
+        return res.status(wsResult.status).json({ ok: false, message: wsResult.message });
       }
-      updates.daysPerWeek = d;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, "weeks")) {
-      const w = parseNonNegativeNumber(body.weeks);
-      if (w === null) {
-        return res.status(400).json({ ok: false, message: "weeks must be a non-negative number" });
+      const weeks = wsResult.weeks;
+      if (!weeks) {
+        return res.status(400).json({
+          ok: false,
+          message: "weeks is required when updating schedule",
+        });
       }
-      updates.weeks = w;
-    }
-
-    let scheduleUnset = {};
-
-    if (touchesSchedule(body)) {
-      const mergedSchedule = mergeChallengeSchedule(challenge.toObject(), body);
-      const refsResult = await attachExerciseReferences(mergedSchedule);
+      const dd = parsePositiveInteger(body.durationDays);
+      if (dd === null) {
+        return res.status(400).json({
+          ok: false,
+          message: "durationDays must be a positive integer when updating schedule",
+        });
+      }
+      const structCheck = validateWeeksStructure(dd, weeks);
+      if (!structCheck.ok) {
+        return res.status(structCheck.status).json({ ok: false, message: structCheck.message });
+      }
+      const refsResult = await resolveExerciseSlugs(weeks);
       if (!refsResult.ok) {
         return res.status(refsResult.status).json({
           ok: false,
@@ -354,139 +531,47 @@ async function updateChallenge(req, res, next) {
           ...(refsResult.missing?.length ? { missing: refsResult.missing } : {}),
         });
       }
-
-      const p = refsResult.payload;
-      updates.weeklySchedule = p.weeklySchedule;
-      if (Object.prototype.hasOwnProperty.call(p, "scheduleMode")) {
-        updates.scheduleMode = p.scheduleMode;
-      }
-      if (Object.prototype.hasOwnProperty.call(p, "durationDays")) {
-        updates.durationDays = p.durationDays;
-      } else if (challenge.durationDays != null && challenge.durationDays !== undefined) {
-        scheduleUnset.durationDays = "";
-      }
+      updates.durationDays = dd;
+      updates.weeks = buildMetaWeeks(weeks);
+      nextDayDocs = buildDayDocs(challenge._id, weeks, refsResult.slugMeta);
     }
 
-    const nextSlug = Object.prototype.hasOwnProperty.call(body, "slug") ? String(body.slug).trim() : challenge.slug;
+    const nextSlug = Object.prototype.hasOwnProperty.call(body, "slug")
+      ? String(body.slug).trim()
+      : challenge.slug;
     const folder = challengeGcsFolder(nextSlug);
+    const banners = await uploadBanners({ folder, files: req.files, body });
+    if (banners.banner_male !== undefined) updates.banner_male = banners.banner_male;
+    if (banners.banner_female !== undefined) updates.banner_female = banners.banner_female;
 
-    const thumbFile =
-      req.files?.thumbnail?.[0] || req.files?.banner?.[0] || req.files?.bannerImage?.[0];
-    const imageFile = req.files?.image?.[0] || req.files?.squareImage?.[0];
-
-    if (thumbFile) {
-      const ext = extFromMime(thumbFile.mimetype);
-      updates.banner = await gcsupload(folder, withForcedOriginalName(thumbFile, `thumbnail.${ext}`), false);
-    }
-    if (imageFile) {
-      const ext = extFromMime(imageFile.mimetype);
-      updates.image = await gcsupload(folder, withForcedOriginalName(imageFile, `image.${ext}`), false);
-    }
-
-    if (Object.prototype.hasOwnProperty.call(body, "banner") && !thumbFile) {
-      const u = String(body.banner).trim();
-      if (!u) {
-        return res.status(400).json({ ok: false, message: "banner URL cannot be empty" });
-      }
-      updates.banner = u;
-    }
-    if (Object.prototype.hasOwnProperty.call(body, "image") && !imageFile) {
-      const u = String(body.image).trim();
-      if (!u) {
-        return res.status(400).json({ ok: false, message: "image URL cannot be empty" });
-      }
-      updates.image = u;
-    }
-
-    const setDoc = {};
-    Object.assign(setDoc, updates);
-
-    const hasUnset = scheduleUnset.durationDays !== undefined;
-    const hasSet = Object.keys(setDoc).length > 0;
-    if (!hasSet && !hasUnset) {
+    if (Object.keys(updates).length === 0 && !nextDayDocs) {
       return res.status(400).json({ ok: false, message: "no updates provided" });
     }
 
-    const mongoUpdates = {};
-    if (hasSet) mongoUpdates.$set = setDoc;
-    if (hasUnset) mongoUpdates.$unset = scheduleUnset;
-    await Challenge.updateOne({ _id: id }, mongoUpdates);
+    Object.assign(challenge, updates);
+    await challenge.save();
 
-    const populated = await Challenge.findById(id).populate(
-      "weeklySchedule.exercises.exerciseId",
-      "title slug muscleGroup equipment"
-    );
-
-    return res.json({ ok: true, data: populated });
-  } catch (err) {
-    return next(err);
-  }
-}
-
-async function createChallenge(req, res, next) {
-  try {
-    const payload = req.body && typeof req.body === "object" ? req.body : {};
-
-    const refsResult = await attachExerciseReferences(payload);
-    if (!refsResult.ok) {
-      return res.status(refsResult.status).json({
-        ok: false,
-        message: refsResult.message,
-        ...(refsResult.missing?.length ? { missing: refsResult.missing } : {}),
-      });
-    }
-    const payloadWithRefs = refsResult.payload;
-
-    const name = String(payloadWithRefs?.name || "").trim();
-    const slug = String(payloadWithRefs?.slug || "").trim();
-    if (!name) {
-      return res.status(400).json({ ok: false, message: "name is required" });
-    }
-    if (!slug) {
-      return res.status(400).json({ ok: false, message: "slug is required" });
-    }
-
-    const diffRaw = String(payloadWithRefs.difficulty ?? "").trim();
-    if (!diffRaw) {
-      delete payloadWithRefs.difficulty;
-    } else {
-      payloadWithRefs.difficulty = diffRaw;
-    }
-
-    const folder = challengeGcsFolder(slug);
-    const thumbFile =
-      req.files?.thumbnail?.[0] ||
-      req.files?.banner?.[0] ||
-      req.files?.bannerImage?.[0];
-    const imageFile = req.files?.image?.[0] || req.files?.squareImage?.[0];
-
-    if (thumbFile) {
-      const ext = extFromMime(thumbFile.mimetype);
-      payloadWithRefs.banner = await gcsupload(
-        folder,
-        withForcedOriginalName(thumbFile, `thumbnail.${ext}`),
-        false
-      );
-    }
-    if (imageFile) {
-      const ext = extFromMime(imageFile.mimetype);
-      payloadWithRefs.image = await gcsupload(
-        folder,
-        withForcedOriginalName(imageFile, `image.${ext}`),
-        false
-      );
-    }
-
-    if (Object.prototype.hasOwnProperty.call(payloadWithRefs, "premium")) {
-      const premium = parseBoolean(payloadWithRefs.premium);
-      if (premium === undefined) {
-        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+    if (nextDayDocs) {
+      // Replace the per-day docs in two steps. Standalone Mongo has no transactions,
+      // so on insertMany failure we restore the old days so the challenge isn't left empty.
+      const previous = await ChallengeDay.find({ challengeId: challenge._id }).lean();
+      await ChallengeDay.deleteMany({ challengeId: challenge._id });
+      try {
+        if (nextDayDocs.length > 0) {
+          await ChallengeDay.insertMany(nextDayDocs, { ordered: true });
+        }
+      } catch (err) {
+        if (previous.length) {
+          await ChallengeDay.insertMany(
+            previous.map(({ _id, __v, createdAt, updatedAt, ...rest }) => rest),
+            { ordered: false }
+          ).catch(() => {});
+        }
+        throw err;
       }
-      payloadWithRefs.premium = premium;
     }
 
-    const challenge = await Challenge.create(payloadWithRefs);
-    return res.status(201).json({ ok: true, data: challenge });
+    return res.json({ ok: true, data: challenge });
   } catch (err) {
     return next(err);
   }
@@ -502,21 +587,17 @@ async function listChallenges(req, res, next) {
         message: "difficulty is required when filtering by goal (indexed with difficulty)",
       });
     }
-    if (difficulty) {
-      if (!CHALLENGE_DIFFICULTIES.has(difficulty)) {
-        return res.status(400).json({
-          ok: false,
-          message: "difficulty must be one of: beginner, intermediate, advanced",
-        });
-      }
+    if (difficulty && !CHALLENGE_DIFFICULTIES.has(difficulty)) {
+      return res.status(400).json({
+        ok: false,
+        message: "difficulty must be one of: beginner, intermediate, advanced",
+      });
     }
-    if (goal) {
-      if (!CHALLENGE_GOALS.has(goal)) {
-        return res.status(400).json({
-          ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
-        });
-      }
+    if (goal && !CHALLENGE_GOALS.has(goal)) {
+      return res.status(400).json({
+        ok: false,
+        message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+      });
     }
 
     const filter = {};
@@ -526,9 +607,8 @@ async function listChallenges(req, res, next) {
     const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select(
-        "_id slug name goal premium difficulty daysPerWeek weeks scheduleMode durationDays banner image"
-      );
+      .select("_id slug name goal premium difficulty durationDays banner_male banner_female")
+      .lean();
     return res.json({ ok: true, data: challenges });
   } catch (err) {
     return next(err);
@@ -546,13 +626,11 @@ async function getChallengesByDifficulty(req, res, next) {
     }
 
     const goal = String(req.query.goal || "").trim();
-    if (goal) {
-      if (!CHALLENGE_GOALS.has(goal)) {
-        return res.status(400).json({
-          ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
-        });
-      }
+    if (goal && !CHALLENGE_GOALS.has(goal)) {
+      return res.status(400).json({
+        ok: false,
+        message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+      });
     }
 
     const filter = { difficulty };
@@ -561,9 +639,8 @@ async function getChallengesByDifficulty(req, res, next) {
     const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal premium difficulty daysPerWeek weeks scheduleMode durationDays banner image")
+      .select("_id slug name goal premium difficulty durationDays banner_male banner_female")
       .lean();
-
     return res.json({ ok: true, data: challenges });
   } catch (err) {
     return next(err);
@@ -573,20 +650,18 @@ async function getChallengesByDifficulty(req, res, next) {
 async function getChallengeBySlug(req, res, next) {
   try {
     const slug = String(req.params.slug || "").trim();
-    if (!slug) {
-      return res.status(400).json({ ok: false, message: "slug is required" });
-    }
+    if (!slug) return res.status(400).json({ ok: false, message: "slug is required" });
 
-    const challenge = await Challenge.findOne({ slug }).populate(
-      "weeklySchedule.exercises.exerciseId",
-      "title slug muscleGroup equipment"
-    );
+    const includeDays = parseBoolean(req.query.includeDays) === true;
+    const populate = parseBoolean(req.query.populate) === true;
 
+    const challenge = await Challenge.findOne({ slug });
     if (!challenge) {
       return res.status(404).json({ ok: false, message: "challenge not found" });
     }
 
-    return res.json({ ok: true, data: challenge });
+    const data = includeDays ? await mergeFullDays(challenge, populate) : challenge;
+    return res.json({ ok: true, data });
   } catch (err) {
     return next(err);
   }
@@ -595,21 +670,194 @@ async function getChallengeBySlug(req, res, next) {
 async function getChallengeById(req, res, next) {
   try {
     const { id } = req.params;
-
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ ok: false, message: "invalid challenge id" });
     }
 
-    const challenge = await Challenge.findById(id).populate(
-      "weeklySchedule.exercises.exerciseId",
-      "title slug muscleGroup equipment"
-    );
+    const includeDays = parseBoolean(req.query.includeDays) === true;
+    const populate = parseBoolean(req.query.populate) === true;
 
+    const challenge = await Challenge.findById(id);
     if (!challenge) {
       return res.status(404).json({ ok: false, message: "challenge not found" });
     }
 
-    return res.json({ ok: true, data: challenge });
+    const data = includeDays ? await mergeFullDays(challenge, populate) : challenge;
+    return res.json({ ok: true, data });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getChallengeDayByChallenge(challengeId, dayParam, populate) {
+  const day = parsePositiveInteger(dayParam);
+  if (day === null) {
+    return { status: 400, body: { ok: false, message: "day must be a positive integer" } };
+  }
+  let q = ChallengeDay.findOne({ challengeId, day });
+  if (populate) {
+    q = q.populate(
+      "exercises.exerciseId",
+      "title slug muscleGroup equipment thumbnailmale thumbnailfemale videomale videofemale duration calories"
+    );
+  }
+  const doc = await q;
+  if (!doc) {
+    return { status: 404, body: { ok: false, message: `day ${day} not found for this challenge` } };
+  }
+  return { status: 200, body: { ok: true, data: doc } };
+}
+
+async function getChallengeDayBySlug(req, res, next) {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    if (!slug) return res.status(400).json({ ok: false, message: "slug is required" });
+
+    const challenge = await Challenge.findOne({ slug }, { _id: 1, durationDays: 1 });
+    if (!challenge) {
+      return res.status(404).json({ ok: false, message: "challenge not found" });
+    }
+
+    const populate = parseBoolean(req.query.populate) !== false; // default true for day-detail
+    const result = await getChallengeDayByChallenge(challenge._id, req.params.day, populate);
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getChallengeDayById(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, message: "invalid challenge id" });
+    }
+    const populate = parseBoolean(req.query.populate) !== false; // default true for day-detail
+    const result = await getChallengeDayByChallenge(id, req.params.day, populate);
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function updateChallengeDay(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ ok: false, message: "invalid challenge id" });
+    }
+    const day = parsePositiveInteger(req.params.day);
+    if (day === null) {
+      return res.status(400).json({ ok: false, message: "day must be a positive integer" });
+    }
+
+    const challenge = await Challenge.findById(id);
+    if (!challenge) {
+      return res.status(404).json({ ok: false, message: "challenge not found" });
+    }
+    if (day > challenge.durationDays) {
+      return res.status(400).json({
+        ok: false,
+        message: `day ${day} exceeds durationDays (${challenge.durationDays})`,
+      });
+    }
+
+    const dayDoc = await ChallengeDay.findOne({ challengeId: id, day });
+    if (!dayDoc) {
+      return res.status(404).json({ ok: false, message: `day ${day} not found for this challenge` });
+    }
+
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const dayUpdates = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, "name")) {
+      const n = String(body.name).trim();
+      if (!n) return res.status(400).json({ ok: false, message: "name cannot be empty" });
+      dayUpdates.name = n;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "muscleGroups")) {
+      const mg = Array.isArray(body.muscleGroups)
+        ? body.muscleGroups.map(String)
+        : typeof body.muscleGroups === "string"
+        ? (() => {
+            try {
+              const parsed = JSON.parse(body.muscleGroups);
+              return Array.isArray(parsed) ? parsed.map(String) : [];
+            } catch {
+              return body.muscleGroups
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+            }
+          })()
+        : [];
+      dayUpdates.muscleGroups = mg;
+    }
+
+    let exerciseListReplaced = false;
+    if (Object.prototype.hasOwnProperty.call(body, "exercises")) {
+      let exercisesInput = body.exercises;
+      if (typeof exercisesInput === "string") {
+        try {
+          exercisesInput = JSON.parse(exercisesInput);
+        } catch {
+          return res.status(400).json({ ok: false, message: "exercises must be a JSON array" });
+        }
+      }
+      if (!Array.isArray(exercisesInput)) {
+        return res.status(400).json({ ok: false, message: "exercises must be an array" });
+      }
+      // Reuse the same slug resolver shape: wrap in a fake weeks tree.
+      const fakeWeeks = [{ weekNumber: 1, days: [{ day, name: "_", exercises: exercisesInput }] }];
+      const refs = await resolveExerciseSlugs(fakeWeeks);
+      if (!refs.ok) {
+        return res.status(refs.status).json({
+          ok: false,
+          message: refs.message,
+          ...(refs.missing?.length ? { missing: refs.missing } : {}),
+        });
+      }
+      dayUpdates.exercises = exercisesInput.map((e) => {
+        const slug = String(e.exerciseSlug).trim();
+        const meta = refs.slugMeta.get(slug) || {};
+        return {
+          exerciseId: meta.id,
+          slug,
+          title: String(e.title || meta.title || "").trim(),
+          sets: Number(e.sets) || 0,
+          reps: String(e.reps || "").trim(),
+          // Duration is sourced from the Exercise; client-supplied duration is ignored.
+          duration: Number(meta.duration) || 0,
+        };
+      });
+      exerciseListReplaced = true;
+    }
+
+    if (Object.keys(dayUpdates).length === 0) {
+      return res.status(400).json({ ok: false, message: "no updates provided" });
+    }
+
+    Object.assign(dayDoc, dayUpdates);
+    await dayDoc.save();
+
+    // Mirror name/muscleGroups/exerciseCount onto the parent Challenge.weeks[].days[] meta.
+    const metaPatch = {};
+    if (dayUpdates.name !== undefined) metaPatch["weeks.$[w].days.$[d].name"] = dayUpdates.name;
+    if (dayUpdates.muscleGroups !== undefined) {
+      metaPatch["weeks.$[w].days.$[d].muscleGroups"] = dayUpdates.muscleGroups;
+    }
+    if (exerciseListReplaced) {
+      metaPatch["weeks.$[w].days.$[d].exerciseCount"] = dayDoc.exercises.length;
+    }
+    if (Object.keys(metaPatch).length > 0) {
+      await Challenge.updateOne(
+        { _id: id },
+        { $set: metaPatch },
+        { arrayFilters: [{ "w.weekNumber": dayDoc.weekNumber }, { "d.day": day }] }
+      );
+    }
+
+    return res.json({ ok: true, data: dayDoc });
   } catch (err) {
     return next(err);
   }
@@ -618,7 +866,6 @@ async function getChallengeById(req, res, next) {
 async function deleteChallenge(req, res, next) {
   try {
     const { id } = req.params;
-
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ ok: false, message: "invalid challenge id" });
     }
@@ -629,11 +876,17 @@ async function deleteChallenge(req, res, next) {
     }
 
     const folderPrefix = challengeGcsFolder(challenge.slug);
-    await gcsdelete(folderPrefix, false);
-
+    await Promise.allSettled([
+      gcsdelete(folderPrefix, false),
+      ChallengeDay.deleteMany({ challengeId: id }),
+    ]);
     await Challenge.deleteOne({ _id: id });
 
-    return res.json({ ok: true, message: "challenge deleted", data: { gcsPrefix: `${folderPrefix}/` } });
+    return res.json({
+      ok: true,
+      message: "challenge deleted",
+      data: { gcsPrefix: `${folderPrefix}/` },
+    });
   } catch (err) {
     return next(err);
   }
@@ -646,5 +899,8 @@ module.exports = {
   getChallengesByDifficulty,
   getChallengeById,
   getChallengeBySlug,
+  getChallengeDayBySlug,
+  getChallengeDayById,
+  updateChallengeDay,
   deleteChallenge,
 };

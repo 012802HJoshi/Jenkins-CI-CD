@@ -6,33 +6,35 @@ const {
   getChallengesByDifficulty,
   getChallengeById,
   getChallengeBySlug,
+  getChallengeDayBySlug,
+  getChallengeDayById,
+  updateChallengeDay,
   deleteChallenge,
 } = require("../controllers/challengeController");
 const { upload } = require("../middleware/upload");
 
 const router = express.Router();
 
-router.get("/", listChallenges);
+const challengeUpload = upload.fields([
+  { name: "banner_male", maxCount: 1 },
+  { name: "banner_female", maxCount: 1 },
+]);
 
+// Reads
+router.get("/", listChallenges);
 router.get("/filter", listChallenges);
 router.get("/filters", listChallenges);
 router.get("/difficulty/:difficulty", getChallengesByDifficulty);
+router.get("/slug/:slug/day/:day", getChallengeDayBySlug);
 router.get("/slug/:slug", getChallengeBySlug);
+router.get("/:id/day/:day", getChallengeDayById);
 router.get("/:id", getChallengeById);
 
-
-const challengeUpload = upload.fields([
-  { name: "thumbnail", maxCount: 1 },
-  { name: "banner", maxCount: 1 },
-  { name: "bannerImage", maxCount: 1 },
-  { name: "image", maxCount: 1 },
-  { name: "squareImage", maxCount: 1 },
-]);
-
+// Writes
+router.post("/", challengeUpload, createChallenge);
 router.put("/:id", challengeUpload, updateChallenge);
 router.patch("/:id", challengeUpload, updateChallenge);
-
-router.post("/", challengeUpload, createChallenge);
+router.patch("/:id/day/:day", updateChallengeDay);
 router.delete("/:id", deleteChallenge);
 
 module.exports = router;

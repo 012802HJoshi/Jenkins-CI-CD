@@ -26,6 +26,10 @@ const ExerciseSchema = new mongoose.Schema(
     videofemale: { type: String, default: "" },
     thumbnailmale: { type: String, default: "" },
     thumbnailfemale: { type: String, default: "" },
+    duration: { type: Number, default: 0 },
+    calories: { type: Number, default: 0 },
+    audio: { type: String, default: "" },
+    focusAreaImage: { type: String, default: "" },
   },
   { timestamps: true }
 );

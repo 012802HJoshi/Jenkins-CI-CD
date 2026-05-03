@@ -1,23 +1,19 @@
 const mongoose = require("mongoose");
 
-const ChallengeDayExerciseSchema = new mongoose.Schema(
-  {
-    exerciseId: { type: mongoose.Schema.Types.ObjectId, ref: "Exercise" },
-    exerciseSlug: { type: String, required: true, trim: true },
-    exerciseTitle: { type: String, default: "", trim: true },
-    sets: { type: Number, default: 0, min: 0 },
-    reps: { type: String, default: "", trim: true },
-    restSeconds: { type: Number, default: 0, min: 0 },
-  },
-  { _id: false }
-);
-
-const ChallengeDaySchema = new mongoose.Schema(
+const ChallengeDayMetaSchema = new mongoose.Schema(
   {
     day: { type: Number, required: true, min: 1 },
     name: { type: String, required: true, trim: true },
     muscleGroups: { type: [String], default: [] },
-    exercises: { type: [ChallengeDayExerciseSchema], default: [] },
+    exerciseCount: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false }
+);
+
+const ChallengeWeekSchema = new mongoose.Schema(
+  {
+    weekNumber: { type: Number, required: true, min: 1 },
+    days: { type: [ChallengeDayMetaSchema], default: [] },
   },
   { _id: false }
 );
@@ -37,23 +33,71 @@ const ChallengeSchema = new mongoose.Schema(
       enum: ["beginner", "intermediate", "advanced"],
       default: "beginner",
     },
-    daysPerWeek: { type: Number, default: 0, min: 0 },
-    weeks: { type: Number, default: 0, min: 0 },
-    /** When absent or "weekly", `weeklySchedule` is a repeating week template (legacy). When "sequential", it is day 1…N in order (fixed-length plan). */
-    scheduleMode: {
-      type: String,
-      enum: ["weekly", "sequential"],
-    },
-    /** Length in days for sequential plans (e.g. 28, 15). Omit for legacy weekly challenges. */
-    durationDays: { type: Number, min: 1 },
-    weeklySchedule: { type: [ChallengeDaySchema], default: [] },
-    banner: { type: String, default: "", trim: true },
-    image: { type: String, default: "", trim: true },
+    durationDays: { type: Number, required: true, min: 1 },
+    weeks: { type: [ChallengeWeekSchema], default: [] },
+    banner_male: { type: String, default: "", trim: true },
+    banner_female: { type: String, default: "", trim: true },
   },
   { timestamps: true }
 );
 
 ChallengeSchema.index({ difficulty: 1, goal: 1 });
 
-// Keep existing "workouts" collection so data created with the old Workout model stays compatible.
+// Enforce week/day invariants:
+// - weekNumber sequence is exactly 1..weeks.length
+// - every non-last week has exactly 7 days; the last week may be partial (1..7)
+// - day values across all weeks cover 1..durationDays exactly (unique, no gaps)
+ChallengeSchema.pre("validate", function ensureWeekDayInvariants(next) {
+  if (!this.isModified("weeks") && !this.isModified("durationDays") && !this.isNew) {
+    return next();
+  }
+
+  const weeks = Array.isArray(this.weeks) ? this.weeks : [];
+  const durationDays = this.durationDays;
+
+  if (!Number.isInteger(durationDays) || durationDays < 1) {
+    return next(new Error("durationDays must be a positive integer"));
+  }
+
+  for (let i = 0; i < weeks.length; i += 1) {
+    const w = weeks[i];
+    if (w.weekNumber !== i + 1) {
+      return next(new Error(`weeks[${i}].weekNumber must be ${i + 1} (got ${w.weekNumber})`));
+    }
+    const dayCount = Array.isArray(w.days) ? w.days.length : 0;
+    const isLast = i === weeks.length - 1;
+    if (!isLast && dayCount !== 7) {
+      return next(new Error(`week ${w.weekNumber} must contain exactly 7 days (only the last week may be partial)`));
+    }
+    if (dayCount < 1 || dayCount > 7) {
+      return next(new Error(`week ${w.weekNumber} must contain between 1 and 7 days (got ${dayCount})`));
+    }
+  }
+
+  const allDays = weeks.flatMap((w) => (Array.isArray(w.days) ? w.days : []));
+  if (allDays.length !== durationDays) {
+    return next(
+      new Error(`total day count across weeks (${allDays.length}) must equal durationDays (${durationDays})`)
+    );
+  }
+  const dayNumbers = allDays.map((d) => d.day);
+  const seen = new Set();
+  for (const n of dayNumbers) {
+    if (!Number.isInteger(n) || n < 1 || n > durationDays) {
+      return next(new Error(`day values must be integers in 1..${durationDays} (got ${n})`));
+    }
+    if (seen.has(n)) {
+      return next(new Error(`duplicate day index ${n} across weeks`));
+    }
+    seen.add(n);
+  }
+  for (let n = 1; n <= durationDays; n += 1) {
+    if (!seen.has(n)) {
+      return next(new Error(`missing day ${n} in weeks (must cover 1..${durationDays})`));
+    }
+  }
+
+  return next();
+});
+
 module.exports = mongoose.model("Challenge", ChallengeSchema, "workouts");
