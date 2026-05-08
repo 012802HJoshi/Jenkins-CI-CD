@@ -33,6 +33,16 @@ npm start
 
 Open `http://localhost:3000/` in your browser.
 
+## List API enum values
+
+Use this endpoint to fetch the supported enum values that can be passed as route/query parameters:
+
+```bash
+curl "http://localhost:3000/api/enums"
+```
+
+It returns values for `difficulty`, `goal`, `exerciseType`, `muscleGroup`, `equipment`, and `category`, grouped globally and by resource.
+
 ## Create Exercise (example)
 
 This endpoint accepts `multipart/form-data` and supports file uploads:
@@ -97,4 +107,3 @@ List challenges:
 ```bash
 curl "http://localhost:3000/api/challenges"
 ```
-

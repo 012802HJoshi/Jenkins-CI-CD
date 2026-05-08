@@ -6,6 +6,7 @@ const { connectDB } = require("./config/db");
 const exerciseRoutes = require("./routes/exercise.router");
 const challengeRoutes = require("./routes/challenge.router");
 const planRoutes = require("./routes/plan.router");
+const enumRoutes = require("./routes/enum.router");
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.get("/", (req, res) => {
 app.use("/api/exercises", exerciseRoutes);
 app.use("/api/challenges", challengeRoutes);
 app.use('/api/plans',planRoutes);
+app.use("/api/enums", enumRoutes);
 
 app.use((err, req, res, next) => {
   const status = err?.status || 500;
@@ -58,4 +60,3 @@ start().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
