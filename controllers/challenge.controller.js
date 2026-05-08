@@ -35,6 +35,21 @@ function parseBoolean(value) {
   return undefined;
 }
 
+function parsePremiumString(value) {
+  if (value == null) return undefined;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    if (value === 1) return "true";
+    if (value === 0) return "false";
+    return undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) return "true";
+  if (["false", "0", "no", "off"].includes(normalized)) return "false";
+  return undefined;
+}
+
 function withForcedOriginalName(file, forcedName) {
   if (!file) return file;
   return { ...file, originalname: forcedName };
@@ -417,9 +432,9 @@ async function createChallenge(req, res) {
 
     let premium;
     if (Object.prototype.hasOwnProperty.call(body, "premium")) {
-      premium = parseBoolean(body.premium);
+      premium = parsePremiumString(body.premium);
       if (premium === undefined) {
-        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+        return res.status(400).json({ ok: false, message: "premium must be true or false" });
       }
     }
 
@@ -545,9 +560,9 @@ async function updateChallenge(req, res) {
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "premium")) {
-      const p = parseBoolean(body.premium);
+      const p = parsePremiumString(body.premium);
       if (p === undefined) {
-        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+        return res.status(400).json({ ok: false, message: "premium must be true or false" });
       }
       updates.premium = p;
     }

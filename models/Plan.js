@@ -28,7 +28,7 @@ const PlanSchema = new mongoose.Schema({
     enum: ["weight_loss", "muscle_building", "stay_fit", "mobility_relax"],
     required: true,
   },
-  premium: { type: Boolean, default: false },
+  premium: { type: String, enum: ["true", "false"], default: "false" },
   bannerImage_male: { type: String, required: true },
   bannerImage_female: { type: String, required: true },
   squareImage_male: { type: String, required: true },

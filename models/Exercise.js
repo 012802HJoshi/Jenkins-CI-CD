@@ -11,7 +11,7 @@ const ExerciseSchema = new mongoose.Schema(
     secondaryMuscles: { type: String, default: "" },
     equipment: { type: String, default: "" },
     category: { type: String, default: "" },
-    premium: { type: Boolean, default: false },
+    premium: { type: String, enum: ["true", "false"], default: "false" },
     difficulty: {
       type: String,
       enum: ["beginner", "intermediate", "advanced"],

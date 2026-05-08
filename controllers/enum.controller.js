@@ -50,18 +50,23 @@ function uniqueValues(...lists) {
 function buildEnumPayload() {
   const exerciseDifficulty = getEnumValues(Exercise, "difficulty");
   const exerciseType = getEnumValues(Exercise, "exerciseType");
+  const exercisePremium = getEnumValues(Exercise, "premium");
   const planDifficulty = getEnumValues(Plan, "difficulty");
   const planGoal = getEnumValues(Plan, "goal");
+  const planPremium = getEnumValues(Plan, "premium");
   const challengeDifficulty = getEnumValues(Challenge, "difficulty");
   const challengeGoal = getEnumValues(Challenge, "goal");
+  const challengePremium = getEnumValues(Challenge, "premium");
 
   const difficulty = uniqueValues(exerciseDifficulty, planDifficulty, challengeDifficulty);
   const goal = uniqueValues(planGoal, challengeGoal);
+  const premium = uniqueValues(exercisePremium, planPremium, challengePremium);
 
   return {
     difficulty,
     goal,
     exerciseType,
+    premium,
     muscleGroup: MUSCLE_GROUP_OPTIONS,
     equipment: EQUIPMENT_OPTIONS,
     category: CATEGORY_OPTIONS,
@@ -69,6 +74,7 @@ function buildEnumPayload() {
       exercises: {
         difficulty: exerciseDifficulty,
         exerciseType,
+        premium: exercisePremium,
         muscleGroup: MUSCLE_GROUP_OPTIONS,
         equipment: EQUIPMENT_OPTIONS,
         category: CATEGORY_OPTIONS,
@@ -76,10 +82,12 @@ function buildEnumPayload() {
       plans: {
         difficulty: planDifficulty,
         goal: planGoal,
+        premium: planPremium,
       },
       challenges: {
         difficulty: challengeDifficulty,
         goal: challengeGoal,
+        premium: challengePremium,
       },
     },
   };

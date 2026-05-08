@@ -11,18 +11,18 @@ function planGcsFolder(slug) {
   return `${PLAN_GCS_PREFIX}/${s}`;
 }
 
-function parseBoolean(value) {
+function parsePremiumString(value) {
   if (value == null) return undefined;
-  if (typeof value === "boolean") return value;
+  if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
-    if (value === 1) return true;
-    if (value === 0) return false;
+    if (value === 1) return "true";
+    if (value === 0) return "false";
     return undefined;
   }
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  if (["true", "1", "yes", "on"].includes(normalized)) return "true";
+  if (["false", "0", "no", "off"].includes(normalized)) return "false";
   return undefined;
 }
 
@@ -314,9 +314,9 @@ async function createPlan(req, res, next) {
       });
     }
 
-    const premium = parseBoolean(body.premium);
+    const premium = parsePremiumString(body.premium);
     if (body.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+      return res.status(400).json({ ok: false, message: "premium must be true or false" });
     }
 
     const plan = await Plan.create({
@@ -585,9 +585,9 @@ async function updatePlan(req, res, next) {
     }
 
     if (body.premium !== undefined) {
-      const p = parseBoolean(body.premium);
+      const p = parsePremiumString(body.premium);
       if (p === undefined) {
-        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+        return res.status(400).json({ ok: false, message: "premium must be true or false" });
       }
       updates.premium = p;
     }

@@ -41,7 +41,7 @@ Use this endpoint to fetch the supported enum values that can be passed as route
 curl "http://localhost:3000/api/enums"
 ```
 
-It returns values for `difficulty`, `goal`, `exerciseType`, `muscleGroup`, `equipment`, and `category`, grouped globally and by resource.
+It returns values for `difficulty`, `goal`, `exerciseType`, `premium`, `muscleGroup`, `equipment`, and `category`, grouped globally and by resource.
 
 ## Create Exercise (example)
 

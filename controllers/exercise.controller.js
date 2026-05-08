@@ -73,19 +73,19 @@ function parseExerciseType(value) {
   return trimmed;
 }
 
-function parseBoolean(value) {
+function parsePremiumString(value) {
   if (value == null) return undefined;
-  if (typeof value === "boolean") return value;
+  if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
-    if (value === 1) return true;
-    if (value === 0) return false;
+    if (value === 1) return "true";
+    if (value === 0) return "false";
     return undefined;
   }
   if (typeof value !== "string") return undefined;
 
   const normalized = value.trim().toLowerCase();
-  if (["true", "1", "yes", "on"].includes(normalized)) return true;
-  if (["false", "0", "no", "off"].includes(normalized)) return false;
+  if (["true", "1", "yes", "on"].includes(normalized)) return "true";
+  if (["false", "0", "no", "off"].includes(normalized)) return "false";
   return undefined;
 }
 
@@ -143,14 +143,14 @@ async function createExercise(req, res, next) {
     const instructions = parseStringArray(body.instructions);
     const importantPoints = parseStringArray(body.importantPoints);
     const exerciseType = parseExerciseType(body.exerciseType);
-    const premium = parseBoolean(body.premium);
+    const premium = parsePremiumString(body.premium);
     const calories = parseNonNegativeNumber(body.calories);
 
     if (body.exerciseType !== undefined && exerciseType === undefined) {
       return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
     }
     if (body.premium !== undefined && premium === undefined) {
-      return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+      return res.status(400).json({ ok: false, message: "premium must be true or false" });
     }
     if (calories === null) {
       return res.status(400).json({ ok: false, message: "calories must be a non-negative number" });
@@ -321,9 +321,9 @@ async function updateExercise(req, res, next) {
     if (body.equipment !== undefined) updates.equipment = body.equipment;
     if (body.category !== undefined) updates.category = body.category;
     if (body.premium !== undefined) {
-      const premium = parseBoolean(body.premium);
+      const premium = parsePremiumString(body.premium);
       if (premium === undefined) {
-        return res.status(400).json({ ok: false, message: "premium must be a boolean" });
+        return res.status(400).json({ ok: false, message: "premium must be true or false" });
       }
       updates.premium = premium;
     }
