@@ -10,7 +10,7 @@ const {
   getChallengeDayById,
   updateChallengeDay,
   deleteChallenge,
-} = require("../controllers/challengeController");
+} = require("../controllers/challenge.controller");
 const { upload } = require("../middleware/upload");
 
 const router = express.Router();

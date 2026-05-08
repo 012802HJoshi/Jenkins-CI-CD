@@ -3,9 +3,9 @@ const cors = require("cors");
 require("dotenv").config();
 
 const { connectDB } = require("./config/db");
-const exerciseRoutes = require("./routes/exerciseRoutes");
-const challengeRoutes = require("./routes/challengeRoutes");
-const planRoutes = require("./routes/planRoutes");
+const exerciseRoutes = require("./routes/exercise.router");
+const challengeRoutes = require("./routes/challenge.router");
+const planRoutes = require("./routes/plan.router");
 
 const app = express();
 

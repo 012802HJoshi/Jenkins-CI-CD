@@ -22,16 +22,14 @@ const ExerciseSchema = new mongoose.Schema(
       enum: ["strength", "cardio_endurence", "flexibility_mobility", "HIIT_circuit", "warmup"],
       default: "strength",
     },
-    videomale: { type: String, default: "" },
-    videofemale: { type: String, default: "" },
-    thumbnailmale: { type: String, default: "" },
-    thumbnailfemale: { type: String, default: "" },
-    duration: { type: Number, default: 0 },
+    videomale: { type: String, required: true, trim: true },
+    videofemale: { type: String, required: true, trim: true },
+    thumbnailmale: { type: String, required: true, trim: true },
+    thumbnailfemale: { type: String, required: true, trim: true },
     calories: { type: Number, default: 0 },
-    audio: { type: String, default: "" },
-    focusAreaImage: { type: String, default: "" },
-  },
-  { timestamps: true }
+    audio: { type: String, required: false, default: "" },
+    focusAreaImage: { type: String, required: false, default: "" },
+  }
 );
 
 ExerciseSchema.index({ category: 1, difficulty: 1 });

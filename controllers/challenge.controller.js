@@ -5,7 +5,6 @@ const mongoose = require("mongoose");
 const { gcsupload } = require("../config/gcsupload");
 const { gcsdelete } = require("../config/gcsdelete");
 
-// GCS layout: challenges/<slug>/banner_male.<ext>, challenges/<slug>/banner_female.<ext>
 const CHALLENGE_PLAN_GCS_PREFIX = "challenges";
 const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 const CHALLENGE_GOALS = new Set([
@@ -52,6 +51,13 @@ function parsePositiveInteger(value) {
   if (value == null || value === "") return null;
   const n = typeof value === "number" ? value : parseInt(String(value).trim(), 10);
   if (!Number.isInteger(n) || n < 1) return null;
+  return n;
+}
+
+function parseNonNegativeDuration(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
   return n;
 }
 
@@ -169,9 +175,8 @@ function validateWeeksStructure(durationDays, weeks) {
 }
 
 /**
- * Walks weeks[].days[].exercises[], validates exerciseSlug presence, then resolves
- * every unique slug to its Exercise {_id, duration} with one query. Duration is read
- * from the Exercise (snapshot at create/update time); the API never accepts it from input.
+ * Walks weeks[].days[].exercises[], validates exerciseSlug + duration, then resolves
+ * every unique slug to its Exercise {_id, title, calories, category, thumbnails} with one query.
  */
 async function resolveExerciseSlugs(weeks) {
   const allSlugs = [];
@@ -188,6 +193,14 @@ async function resolveExerciseSlugs(weeks) {
             message: "exerciseSlug is required for every exercise in weeks",
           };
         }
+        const duration = parseNonNegativeDuration(e?.duration);
+        if (duration === null) {
+          return {
+            ok: false,
+            status: 400,
+            message: "duration must be a non-negative number for every exercise in weeks",
+          };
+        }
         allSlugs.push(slug);
       }
     }
@@ -198,7 +211,7 @@ async function resolveExerciseSlugs(weeks) {
   const uniqueSlugs = [...new Set(allSlugs)];
   const matched = await Exercise.find(
     { slug: { $in: uniqueSlugs } },
-    { _id: 1, slug: 1, duration: 1, title: 1 }
+    { _id: 1, slug: 1, title: 1, calories: 1, category: 1, thumbnailmale: 1, thumbnailfemale: 1 }
   );
   const matchedSet = new Set(matched.map((e) => e.slug));
   const missing = uniqueSlugs.filter((s) => !matchedSet.has(s));
@@ -213,10 +226,38 @@ async function resolveExerciseSlugs(weeks) {
   const slugMeta = new Map(
     matched.map((e) => [
       e.slug,
-      { id: e._id, duration: Number(e.duration) || 0, title: String(e.title || "") },
+      {
+        id: e._id,
+        title: String(e.title || ""),
+        caloriesPerMinute: Number(e.calories) || 0,
+        category: String(e.category ?? "").trim(),
+        thumbnailmale: String(e.thumbnailmale ?? "").trim(),
+        thumbnailfemale: String(e.thumbnailfemale ?? "").trim(),
+      },
     ])
   );
   return { ok: true, slugMeta };
+}
+
+function computeDayTotals(exercises, slugMeta) {
+  const list = Array.isArray(exercises) ? exercises : [];
+  let totalDurationSeconds = 0;
+  let totalCalories = 0;
+
+  for (const e of list) {
+    const durationSeconds = parseNonNegativeDuration(e?.duration) || 0;
+    const slug = String(e?.slug || "").trim();
+    const meta = slugMeta?.get(slug) || {};
+    const caloriesPerMinute = Number(meta.caloriesPerMinute) || 0;
+
+    totalDurationSeconds += durationSeconds;
+    totalCalories += (durationSeconds / 60) * caloriesPerMinute;
+  }
+
+  return {
+    duration: totalDurationSeconds,
+    calories: totalCalories,
+  };
 }
 
 function sendError(res, err) {
@@ -227,15 +268,23 @@ function sendError(res, err) {
 }
 
 /** Strip exercises[] off weeks; produce metadata-only weeks for the Challenge doc. */
-function buildMetaWeeks(weeks) {
+function buildMetaWeeks(weeks, slugMeta) {
   return weeks.map((w) => ({
     weekNumber: Number(w.weekNumber),
-    days: (Array.isArray(w.days) ? w.days : []).map((d) => ({
-      day: Number(d.day),
-      name: String(d.name).trim(),
-      muscleGroups: Array.isArray(d.muscleGroups) ? d.muscleGroups.map(String) : [],
-      exerciseCount: Array.isArray(d.exercises) ? d.exercises.length : 0,
-    })),
+    days: (Array.isArray(w.days) ? w.days : []).map((d) => {
+      const exercises = (Array.isArray(d.exercises) ? d.exercises : []).map((e) => ({
+        slug: String(e?.exerciseSlug || "").trim(),
+        duration: parseNonNegativeDuration(e?.duration),
+      }));
+      const totals = computeDayTotals(exercises, slugMeta);
+      return {
+        day: Number(d.day),
+        name: String(d.name).trim(),
+        muscleGroups: Array.isArray(d.muscleGroups) ? d.muscleGroups.map(String) : [],
+        exerciseCount: Array.isArray(d.exercises) ? d.exercises.length : 0,
+        calories: totals.calories,
+      };
+    }),
   }));
 }
 
@@ -256,16 +305,21 @@ function buildDayDocs(challengeId, weeks, slugMeta) {
           title: String(e.title || meta.title || "").trim(),
           sets: Number(e.sets) || 0,
           reps: String(e.reps || "").trim(),
-          // Duration is always sourced from the Exercise; client-supplied duration is ignored.
-          duration: Number(meta.duration) || 0,
+          duration: parseNonNegativeDuration(e.duration),
+          category: String(e.category || meta.category || "").trim(),
+          thumbnailmale: String(e.thumbnailmale || meta.thumbnailmale || "").trim(),
+          thumbnailfemale: String(e.thumbnailfemale || meta.thumbnailfemale || "").trim(),
         };
       });
+      const totals = computeDayTotals(exercises, slugMeta);
       docs.push({
         challengeId,
         day: Number(d.day),
         weekNumber,
         name: String(d.name).trim(),
         muscleGroups: Array.isArray(d.muscleGroups) ? d.muscleGroups.map(String) : [],
+        calories: totals.calories,
+        duration: totals.duration,
         exercises,
       });
     }
@@ -275,15 +329,12 @@ function buildDayDocs(challengeId, weeks, slugMeta) {
 
 /**
  * For ?includeDays=true, fetches all ChallengeDay docs for the challenge and merges
- * full exercises[] back into the metadata weeks[].days[] structure.
+ * exercises[] back into the metadata weeks[].days[] structure.
+ * exerciseId is left unpopulated (ObjectId only).
  */
-async function mergeFullDays(challenge, populate) {
+async function mergeFullDays(challenge) {
   const obj = challenge.toObject ? challenge.toObject() : challenge;
-  let q = ChallengeDay.find({ challengeId: obj._id }).sort({ day: 1 });
-  if (populate) {
-    q = q.populate("exercises.exerciseId", "title slug muscleGroup equipment thumbnailmale thumbnailfemale");
-  }
-  const dayDocs = await q.lean();
+  const dayDocs = await ChallengeDay.find({ challengeId: obj._id }).sort({ day: 1 }).lean();
   const dayMap = new Map(dayDocs.map((d) => [d.day, d]));
   obj.weeks = (obj.weeks || []).map((w) => ({
     ...w,
@@ -403,7 +454,7 @@ async function createChallenge(req, res) {
     const folder = challengeGcsFolder(slug);
     const banners = await uploadBanners({ folder, files: req.files, body });
 
-    const metaWeeks = buildMetaWeeks(weeks);
+    const metaWeeks = buildMetaWeeks(weeks, refsResult.slugMeta);
     const challengeBody = {
       slug,
       name,
@@ -539,7 +590,7 @@ async function updateChallenge(req, res) {
         });
       }
       updates.durationDays = dd;
-      updates.weeks = buildMetaWeeks(weeks);
+      updates.weeks = buildMetaWeeks(weeks, refsResult.slugMeta);
       nextDayDocs = buildDayDocs(challenge._id, weeks, refsResult.slugMeta);
     }
 
@@ -660,14 +711,13 @@ async function getChallengeBySlug(req, res) {
     if (!slug) return res.status(400).json({ ok: false, message: "slug is required" });
 
     const includeDays = parseBoolean(req.query.includeDays) === true;
-    const populate = parseBoolean(req.query.populate) === true;
 
     const challenge = await Challenge.findOne({ slug });
     if (!challenge) {
       return res.status(404).json({ ok: false, message: "challenge not found" });
     }
 
-    const data = includeDays ? await mergeFullDays(challenge, populate) : challenge;
+    const data = includeDays ? await mergeFullDays(challenge) : challenge;
     return res.json({ ok: true, data });
   } catch (err) {
     return sendError(res, err);
@@ -682,33 +732,25 @@ async function getChallengeById(req, res) {
     }
 
     const includeDays = parseBoolean(req.query.includeDays) === true;
-    const populate = parseBoolean(req.query.populate) === true;
 
     const challenge = await Challenge.findById(id);
     if (!challenge) {
       return res.status(404).json({ ok: false, message: "challenge not found" });
     }
 
-    const data = includeDays ? await mergeFullDays(challenge, populate) : challenge;
+    const data = includeDays ? await mergeFullDays(challenge) : challenge;
     return res.json({ ok: true, data });
   } catch (err) {
     return sendError(res, err);
   }
 }
 
-async function getChallengeDayByChallenge(challengeId, dayParam, populate) {
+async function getChallengeDayByChallenge(challengeId, dayParam) {
   const day = parsePositiveInteger(dayParam);
   if (day === null) {
     return { status: 400, body: { ok: false, message: "day must be a positive integer" } };
   }
-  let q = ChallengeDay.findOne({ challengeId, day });
-  if (populate) {
-    q = q.populate(
-      "exercises.exerciseId",
-      "title slug muscleGroup equipment thumbnailmale thumbnailfemale videomale videofemale duration calories"
-    );
-  }
-  const doc = await q;
+  const doc = await ChallengeDay.findOne({ challengeId, day });
   if (!doc) {
     return { status: 404, body: { ok: false, message: `day ${day} not found for this challenge` } };
   }
@@ -725,8 +767,7 @@ async function getChallengeDayBySlug(req, res) {
       return res.status(404).json({ ok: false, message: "challenge not found" });
     }
 
-    const populate = parseBoolean(req.query.populate) !== false; // default true for day-detail
-    const result = await getChallengeDayByChallenge(challenge._id, req.params.day, populate);
+    const result = await getChallengeDayByChallenge(challenge._id, req.params.day);
     return res.status(result.status).json(result.body);
   } catch (err) {
     return sendError(res, err);
@@ -739,8 +780,7 @@ async function getChallengeDayById(req, res) {
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ ok: false, message: "invalid challenge id" });
     }
-    const populate = parseBoolean(req.query.populate) !== false; // default true for day-detail
-    const result = await getChallengeDayByChallenge(id, req.params.day, populate);
+    const result = await getChallengeDayByChallenge(id, req.params.day);
     return res.status(result.status).json(result.body);
   } catch (err) {
     return sendError(res, err);
@@ -833,10 +873,15 @@ async function updateChallengeDay(req, res) {
           title: String(e.title || meta.title || "").trim(),
           sets: Number(e.sets) || 0,
           reps: String(e.reps || "").trim(),
-          // Duration is sourced from the Exercise; client-supplied duration is ignored.
-          duration: Number(meta.duration) || 0,
+          duration: parseNonNegativeDuration(e.duration),
+          category: String(e.category || meta.category || "").trim(),
+          thumbnailmale: String(e.thumbnailmale || meta.thumbnailmale || "").trim(),
+          thumbnailfemale: String(e.thumbnailfemale || meta.thumbnailfemale || "").trim(),
         };
       });
+      const totals = computeDayTotals(dayUpdates.exercises, refs.slugMeta);
+      dayUpdates.calories = totals.calories;
+      dayUpdates.duration = totals.duration;
       exerciseListReplaced = true;
     }
 
@@ -855,6 +900,7 @@ async function updateChallengeDay(req, res) {
     }
     if (exerciseListReplaced) {
       metaPatch["weeks.$[w].days.$[d].exerciseCount"] = dayDoc.exercises.length;
+      metaPatch["weeks.$[w].days.$[d].calories"] = dayDoc.calories;
     }
     if (Object.keys(metaPatch).length > 0) {
       await Challenge.updateOne(

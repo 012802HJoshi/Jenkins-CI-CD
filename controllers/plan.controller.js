@@ -54,6 +54,13 @@ function parseNonNegativeNumber(value, fallback) {
   return n;
 }
 
+function parseExerciseDuration(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 function normalizeExercisesInput(raw) {
   if (raw == null) {
     return { ok: true, arr: [] };
@@ -89,30 +96,26 @@ function extractExerciseLookup(item) {
     return null;
   }
   if (typeof item === "object" && !Array.isArray(item)) {
+    const duration = parseExerciseDuration(item.duration);
+    if (duration === null) {
+      return null;
+    }
     const id = String(item.exerciseId || item._id || "").trim();
     if (id && mongoose.isValidObjectId(id)) {
-      return { kind: "id", value: id };
+      return { kind: "id", value: id, duration };
     }
     const slug = String(item.exerciseSlug || item.slug || "").trim();
     if (slug) {
-      return { kind: "slug", value: slug };
+      return { kind: "slug", value: slug, duration };
     }
     return null;
-  }
-  if (typeof item === "string") {
-    const s = item.trim();
-    if (!s) return null;
-    if (mongoose.isValidObjectId(s)) {
-      return { kind: "id", value: s };
-    }
-    return { kind: "slug", value: s };
   }
   return null;
 }
 
 /**
  * Resolves exercises from slugs and/or ids. Preserves order (including duplicates).
- * @returns {{ ok: true, entries: { exercise: import("mongoose").Types.ObjectId, slug: string, title: string }[] } | { ok: false, status: number, message: string }}
+ * @returns {{ ok: true, entries: { exercise: import("mongoose").Types.ObjectId, slug: string, title: string, duration: number, category: string, thumbnailmale: string, thumbnailfemale: string }[] } | { ok: false, status: number, message: string }}
  */
 async function resolvePlanExercises(raw) {
   const normalized = normalizeExercisesInput(raw);
@@ -129,7 +132,7 @@ async function resolvePlanExercises(raw) {
         ok: false,
         status: 400,
         message:
-          "each exercise must be a slug string, a Mongo ObjectId string, or an object with exerciseSlug/slug or exerciseId",
+          "each exercise must be an object with duration and one of exerciseSlug/slug or exerciseId/_id",
       };
     }
     lookups.push(key);
@@ -151,15 +154,16 @@ async function resolvePlanExercises(raw) {
 
   const bySlug = new Map();
   const byId = new Map();
+  const exerciseProjection = { slug: 1, title: 1, category: 1, thumbnailmale: 1, thumbnailfemale: 1 };
 
   if (slugSet.size) {
-    const docs = await Exercise.find({ slug: { $in: [...slugSet] } }, { slug: 1, title: 1 }).lean();
+    const docs = await Exercise.find({ slug: { $in: [...slugSet] } }, exerciseProjection).lean();
     for (const d of docs) {
       bySlug.set(d.slug, d);
     }
   }
   if (idSet.size) {
-    const docs = await Exercise.find({ _id: { $in: [...idSet] } }, { slug: 1, title: 1 }).lean();
+    const docs = await Exercise.find({ _id: { $in: [...idSet] } }, exerciseProjection).lean();
     for (const d of docs) {
       byId.set(String(d._id), d);
     }
@@ -179,6 +183,10 @@ async function resolvePlanExercises(raw) {
       exercise: doc._id,
       slug: doc.slug,
       title: doc.title,
+      duration: key.duration,
+      category: doc.category,
+      thumbnailmale: doc.thumbnailmale,
+      thumbnailfemale: doc.thumbnailfemale,
     });
   }
 
@@ -218,6 +226,11 @@ async function createPlan(req, res, next) {
     }
 
     const duration = parseNonNegativeNumber(body.duration, 0);
+    const calories = parseNonNegativeNumber(body.calories, 0);
+    if (calories === null) {
+      return res.status(400).json({ ok: false, message: "calories must be a non-negative number" });
+    }
+
     if (duration === null) {
       return res.status(400).json({ ok: false, message: "duration must be a non-negative number" });
     }
@@ -232,6 +245,10 @@ async function createPlan(req, res, next) {
       exercise: e.exercise,
       slug: e.slug,
       title: e.title,
+      duration: e.duration,
+      category: e.category,
+      thumbnailmale: e.thumbnailmale,
+      thumbnailfemale:e.thumbnailfemale
     }));
 
     let numberofExercises = parseNonNegativeNumber(body.numberofExercises, undefined);
@@ -250,27 +267,50 @@ async function createPlan(req, res, next) {
     const description = body.description !== undefined ? String(body.description) : "";
 
     const folder = planGcsFolder(slug);
-    const bannerFile = req.files?.bannerImage?.[0];
-    const squareFile = req.files?.squareImage?.[0];
-    const bannerFromBody = String(body.bannerImage || "").trim();
-    const squareFromBody = String(body.squareImage || "").trim();
+    const bannerMaleFile = req.files?.bannerImage_male?.[0];
+    const squareMaleFile = req.files?.squareImage_male?.[0];
+    const bannerFemaleFile = req.files?.bannerImage_female?.[0];
+    const squareFemaleFile = req.files?.squareImage_female?.[0];
+    const bannerMaleFromBody = String(body.bannerImage_male || "").trim();
+    const squareMaleFromBody = String(body.squareImage_male || "").trim();
+    const bannerFemaleFromBody = String(body.bannerImage_female || "").trim();
+    const squareFemaleFromBody = String(body.squareImage_female || "").trim();
 
-    let bannerImage = bannerFromBody;
-    let squareImage = squareFromBody;
+    let bannerImage_male = bannerMaleFromBody;
+    let squareImage_male = squareMaleFromBody;
+    let bannerImage_female = bannerFemaleFromBody;
+    let squareImage_female = squareFemaleFromBody;
 
-    if (bannerFile) {
-      const ext = extFromMime(bannerFile.mimetype);
-      bannerImage = await gcsupload(folder, withForcedOriginalName(bannerFile, `banner.${ext}`), false);
+    if (bannerMaleFile) {
+      const ext = extFromMime(bannerMaleFile.mimetype);
+      bannerImage_male = await gcsupload(folder, withForcedOriginalName(bannerMaleFile, `banner_male.${ext}`), false);
     }
-    if (squareFile) {
-      const ext = extFromMime(squareFile.mimetype);
-      squareImage = await gcsupload(folder, withForcedOriginalName(squareFile, `square.${ext}`), false);
+    if (squareMaleFile) {
+      const ext = extFromMime(squareMaleFile.mimetype);
+      squareImage_male = await gcsupload(folder, withForcedOriginalName(squareMaleFile, `square_male.${ext}`), false);
+    }
+    if (bannerFemaleFile) {
+      const ext = extFromMime(bannerFemaleFile.mimetype);
+      bannerImage_female = await gcsupload(
+        folder,
+        withForcedOriginalName(bannerFemaleFile, `banner_female.${ext}`),
+        false
+      );
+    }
+    if (squareFemaleFile) {
+      const ext = extFromMime(squareFemaleFile.mimetype);
+      squareImage_female = await gcsupload(
+        folder,
+        withForcedOriginalName(squareFemaleFile, `square_female.${ext}`),
+        false
+      );
     }
 
-    if (!bannerImage || !squareImage) {
+    if (!bannerImage_male || !squareImage_male || !bannerImage_female || !squareImage_female) {
       return res.status(400).json({
         ok: false,
-        message: "bannerImage and squareImage are required (upload files or pass URLs in the body)",
+        message:
+          "bannerImage_male, squareImage_male, bannerImage_female, and squareImage_female are required (upload files or pass URLs in the body)",
       });
     }
 
@@ -285,9 +325,12 @@ async function createPlan(req, res, next) {
       description,
       difficulty,
       goal: goalRaw,
-      bannerImage,
-      squareImage,
+      bannerImage_male,
+      bannerImage_female,
+      squareImage_male,
+      squareImage_female,
       duration,
+      calories,
       numberofExercises,
       exercises,
       ...(premium !== undefined ? { premium } : {}),
@@ -306,14 +349,86 @@ async function getAPlanById(req, res, next) {
       return res.status(400).json({ ok: false, message: "invalid plan id" });
     }
 
-    const plan = await Plan.findById(id).populate(
-      "exercises.exercise",
-      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale"
-    );
+    const plan = await Plan.findById(id).lean();
 
     if (!plan) {
       return res.status(404).json({ ok: false, message: "plan not found" });
     }
+
+    const exerciseIds = [
+      ...new Set(
+        (plan.exercises || [])
+          .map((item) => String(item.exercise || "").trim())
+          .filter((value) => mongoose.isValidObjectId(value))
+      ),
+    ];
+    const exercisesById = new Map();
+    if (exerciseIds.length) {
+      const exerciseDocs = await Exercise.find(
+        { _id: { $in: exerciseIds } },
+        { category: 1, thumbnailmale: 1, thumbnailfemale: 1 }
+      ).lean();
+      for (const doc of exerciseDocs) {
+        exercisesById.set(String(doc._id), doc);
+      }
+    }
+
+    plan.exercises = (plan.exercises || []).map((item) => {
+      const exerciseDoc = exercisesById.get(String(item.exercise));
+      return {
+        ...item,
+        category: item.category || exerciseDoc?.category || "",
+        thumbnailmale: item.thumbnailmale || exerciseDoc?.thumbnailmale || "",
+        thumbnailfemale: item.thumbnailfemale || exerciseDoc?.thumbnailfemale || "",
+      };
+    });
+
+    return res.json({ ok: true, data: plan });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+async function getAPlanBySlug(req, res, next) {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    if (!slug) {
+      return res.status(400).json({ ok: false, message: "invalid plan slug" });
+    }
+
+    const plan = await Plan.findOne({ slug }).lean();
+
+    if (!plan) {
+      return res.status(404).json({ ok: false, message: "plan not found" });
+    }
+
+    const exerciseIds = [
+      ...new Set(
+        (plan.exercises || [])
+          .map((item) => String(item.exercise || "").trim())
+          .filter((value) => mongoose.isValidObjectId(value))
+      ),
+    ];
+    const exercisesById = new Map();
+    if (exerciseIds.length) {
+      const exerciseDocs = await Exercise.find(
+        { _id: { $in: exerciseIds } },
+        { category: 1, thumbnailmale: 1, thumbnailfemale: 1 }
+      ).lean();
+      for (const doc of exerciseDocs) {
+        exercisesById.set(String(doc._id), doc);
+      }
+    }
+
+    plan.exercises = (plan.exercises || []).map((item) => {
+      const exerciseDoc = exercisesById.get(String(item.exercise));
+      return {
+        ...item,
+        category: item.category || exerciseDoc?.category || "",
+        thumbnailmale: item.thumbnailmale || exerciseDoc?.thumbnailmale || "",
+        thumbnailfemale: item.thumbnailfemale || exerciseDoc?.thumbnailfemale || "",
+      };
+    });
 
     return res.json({ ok: true, data: plan });
   } catch (err) {
@@ -355,7 +470,7 @@ async function getAllPlans(req, res, next) {
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
       .select(
-        "name slug description difficulty goal premium bannerImage squareImage duration numberofExercises exercises"
+        "name slug difficulty goal premium squareImage_male squareImage_female duration calories numberofExercises"
       )
       .lean();
 
@@ -396,7 +511,7 @@ async function getPlansByFilter(req, res, next) {
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
       .select(
-        "name slug description difficulty goal premium bannerImage squareImage duration numberofExercises exercises"
+        "name slug difficulty goal premium squareImage_male squareImage_female duration calories numberofExercises"
       )
       .lean();
 
@@ -495,6 +610,10 @@ async function updatePlan(req, res, next) {
         exercise: e.exercise,
         slug: e.slug,
         title: e.title,
+        duration: e.duration,
+        category: e.category,
+        thumbnailmale: e.thumbnailmale,
+        thumbnailfemale: e.thumbnailfemale,
       }));
       updates.numberofExercises = updates.exercises.length;
     }
@@ -512,45 +631,92 @@ async function updatePlan(req, res, next) {
       }
       updates.numberofExercises = n;
     }
+    if (body.calories !== undefined) {
+      const calories = parseNonNegativeNumber(body.calories, undefined);
+      if (calories === null) {
+        return res.status(400).json({ ok: false, message: "calories must be a non-negative number" });
+      }
+      updates.calories = calories;
+    }
 
     const nextSlug = updates.slug !== undefined ? updates.slug : plan.slug;
     const folder = planGcsFolder(nextSlug);
 
-    const bannerFile = req.files?.bannerImage?.[0];
-    const squareFile = req.files?.squareImage?.[0];
+    const bannerMaleFile = req.files?.bannerImage_male?.[0];
+    const squareMaleFile = req.files?.squareImage_male?.[0];
+    const bannerFemaleFile = req.files?.bannerImage_female?.[0];
+    const squareFemaleFile = req.files?.squareImage_female?.[0];
 
-    if (bannerFile) {
-      const ext = extFromMime(bannerFile.mimetype);
-      updates.bannerImage = await gcsupload(folder, withForcedOriginalName(bannerFile, `banner.${ext}`), false);
+    if (bannerMaleFile) {
+      const ext = extFromMime(bannerMaleFile.mimetype);
+      updates.bannerImage_male = await gcsupload(
+        folder,
+        withForcedOriginalName(bannerMaleFile, `banner_male.${ext}`),
+        false
+      );
     }
-    if (squareFile) {
-      const ext = extFromMime(squareFile.mimetype);
-      updates.squareImage = await gcsupload(folder, withForcedOriginalName(squareFile, `square.${ext}`), false);
+    if (squareMaleFile) {
+      const ext = extFromMime(squareMaleFile.mimetype);
+      updates.squareImage_male = await gcsupload(
+        folder,
+        withForcedOriginalName(squareMaleFile, `square_male.${ext}`),
+        false
+      );
+    }
+    if (bannerFemaleFile) {
+      const ext = extFromMime(bannerFemaleFile.mimetype);
+      updates.bannerImage_female = await gcsupload(
+        folder,
+        withForcedOriginalName(bannerFemaleFile, `banner_female.${ext}`),
+        false
+      );
+    }
+    if (squareFemaleFile) {
+      const ext = extFromMime(squareFemaleFile.mimetype);
+      updates.squareImage_female = await gcsupload(
+        folder,
+        withForcedOriginalName(squareFemaleFile, `square_female.${ext}`),
+        false
+      );
     }
 
-    if (body.bannerImage !== undefined && !bannerFile) {
-      const u = String(body.bannerImage).trim();
+    if (body.bannerImage_male !== undefined && !bannerMaleFile) {
+      const u = String(body.bannerImage_male).trim();
       if (!u) {
-        return res.status(400).json({ ok: false, message: "bannerImage URL cannot be empty" });
+        return res.status(400).json({ ok: false, message: "bannerImage_male URL cannot be empty" });
       }
-      updates.bannerImage = u;
+      updates.bannerImage_male = u;
     }
-    if (body.squareImage !== undefined && !squareFile) {
-      const u = String(body.squareImage).trim();
+    if (body.squareImage_male !== undefined && !squareMaleFile) {
+      const u = String(body.squareImage_male).trim();
       if (!u) {
-        return res.status(400).json({ ok: false, message: "squareImage URL cannot be empty" });
+        return res.status(400).json({ ok: false, message: "squareImage_male URL cannot be empty" });
       }
-      updates.squareImage = u;
+      updates.squareImage_male = u;
+    }
+    if (body.bannerImage_female !== undefined && !bannerFemaleFile) {
+      const u = String(body.bannerImage_female).trim();
+      if (!u) {
+        return res.status(400).json({ ok: false, message: "bannerImage_female URL cannot be empty" });
+      }
+      updates.bannerImage_female = u;
+    }
+    if (body.squareImage_female !== undefined && !squareFemaleFile) {
+      const u = String(body.squareImage_female).trim();
+      if (!u) {
+        return res.status(400).json({ ok: false, message: "squareImage_female URL cannot be empty" });
+      }
+      updates.squareImage_female = u;
     }
 
-    // Slug changes do not delete the old GCS prefix: existing bannerImage/squareImage URLs may still point there.
+    // Slug changes do not delete the old GCS prefix: existing image URLs may still point there.
 
     Object.assign(plan, updates);
     await plan.save();
 
     const populated = await Plan.findById(plan._id).populate(
       "exercises.exercise",
-      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale"
+      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale calories audio focusAreaImage"
     );
 
     return res.json({ ok: true, data: populated });
@@ -593,6 +759,7 @@ async function deletePlan(req, res, next) {
 module.exports = {
   createPlan,
   getAPlanById,
+  getAPlanBySlug,
   updatePlan,
   deletePlan,
   getAllPlans,

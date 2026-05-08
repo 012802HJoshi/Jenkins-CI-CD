@@ -4,11 +4,12 @@ const {
   updateExercise,
   deleteExerciseFolder,
   getExerciseById,
+  getExerciseBySlug,
   getAllExercises,
   getExerciseByCategoryAndDifficulty,
   getExercisesByFilter,
   getAlphaSortedExercises
-} = require("../controllers/exerciseController");
+} = require("../controllers/exercise.controller");
 const { upload } = require("../middleware/upload");
 
 const router = express.Router();
@@ -20,20 +21,23 @@ router.post(
     { name: "videofemale", maxCount: 1 },
     { name: "thumbnailmale", maxCount: 1 },
     { name: "thumbnailfemale", maxCount: 1 },
+    { name: "audio", maxCount: 1 },
+    { name: "focusAreaImage", maxCount: 1 },
   ]),
   createExercise
-);
+); 
 
 // Filters (keep before "/:id" — "/filter" must exist or "filter" is treated as :id and returns 400)
 router.get("/filter", getExercisesByFilter);
 router.get("/filters", getExercisesByFilter);
+
 // Matches index { category, difficulty }; other combos use GET / or /filter with query params
 router.get("/category/:category/difficulty/:difficulty", getExerciseByCategoryAndDifficulty);
+router.get("/sorted/alphabetical", getAlphaSortedExercises);
 
 router.get("/", getAllExercises);
+router.get("/slug/:slug", getExerciseBySlug);
 router.get("/:id", getExerciseById);
-
-router.get('/sorted/alphabetical', getAlphaSortedExercises);
 
 router.patch(
   "/:id",
@@ -42,6 +46,8 @@ router.patch(
     { name: "videofemale", maxCount: 1 },
     { name: "thumbnailmale", maxCount: 1 },
     { name: "thumbnailfemale", maxCount: 1 },
+    { name: "audio", maxCount: 1 },
+    { name: "focusAreaImage", maxCount: 1 },
   ]),
   updateExercise
 );

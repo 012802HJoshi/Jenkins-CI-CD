@@ -12,11 +12,21 @@ function exerciseGenderFolder(slug, genderFolder) {
   return `${s}/${genderFolder}`;
 }
 
-function extFromMime(mimetype) {
+function extFromImageMime(mimetype) {
   if (!mimetype) return "jpg";
   if (mimetype.includes("png")) return "png";
   if (mimetype.includes("webp")) return "webp";
   return "jpg";
+}
+
+function extFromAudioMime(mimetype) {
+  if (!mimetype) return "mp3";
+  if (mimetype.includes("wav")) return "wav";
+  if (mimetype.includes("ogg")) return "ogg";
+  if (mimetype.includes("aac")) return "aac";
+  if (mimetype.includes("mp4")) return "m4a";
+  if (mimetype.includes("mpeg") || mimetype.includes("mp3")) return "mp3";
+  return "mp3";
 }
 
 function parseStringArray(value) {
@@ -79,6 +89,13 @@ function parseBoolean(value) {
   return undefined;
 }
 
+function parseNonNegativeNumber(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 function withForcedOriginalName(file, forcedName) {
   if (!file) return file;
   return { ...file, originalname: forcedName };
@@ -93,6 +110,12 @@ function toJsonFile(data, filename = "exercise.json") {
   };
 }
 
+function requiredMediaValue({ file, bodyValue }) {
+  if (file) return "__FROM_FILE__";
+  if (bodyValue == null) return "";
+  return String(bodyValue).trim();
+}
+
 async function createExercise(req, res, next) {
   try {
     const body = req.body || {};
@@ -105,6 +128,8 @@ async function createExercise(req, res, next) {
       equipment,
       category,
       difficulty,
+      audio,
+      focusAreaImage,
       videomale: videomaleFromBody,
       videofemale: videofemaleFromBody,
       thumbnailmale: thumbnailmaleFromBody,
@@ -119,6 +144,7 @@ async function createExercise(req, res, next) {
     const importantPoints = parseStringArray(body.importantPoints);
     const exerciseType = parseExerciseType(body.exerciseType);
     const premium = parseBoolean(body.premium);
+    const calories = parseNonNegativeNumber(body.calories);
 
     if (body.exerciseType !== undefined && exerciseType === undefined) {
       return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
@@ -126,19 +152,50 @@ async function createExercise(req, res, next) {
     if (body.premium !== undefined && premium === undefined) {
       return res.status(400).json({ ok: false, message: "premium must be a boolean" });
     }
+    if (calories === null) {
+      return res.status(400).json({ ok: false, message: "calories must be a non-negative number" });
+    }
 
     const maleVideoFile = req.files?.videomale?.[0];
     const femaleVideoFile = req.files?.videofemale?.[0];
     const thumbMaleFile = req.files?.thumbnailmale?.[0];
     const thumbFemaleFile = req.files?.thumbnailfemale?.[0];
+    const audioFile = req.files?.audio?.[0];
+    const focusAreaImageFile = req.files?.focusAreaImage?.[0];
 
     const pathMen = () => exerciseGenderFolder(slug, EXERCISE_GCS_MEN);
     const pathFemale = () => exerciseGenderFolder(slug, EXERCISE_GCS_FEMALE);
+    const pathRoot = () => String(slug || "").trim();
 
     const bodyVideomale =
       body.videomale != null && String(body.videomale).trim() !== "" ? body.videomale : videomaleFromBody;
     const bodyVideofemale =
       body.videofemale != null && String(body.videofemale).trim() !== "" ? body.videofemale : videofemaleFromBody;
+
+    const requiredVideomale = requiredMediaValue({
+      file: maleVideoFile,
+      bodyValue: bodyVideomale,
+    });
+    const requiredVideofemale = requiredMediaValue({
+      file: femaleVideoFile,
+      bodyValue: bodyVideofemale,
+    });
+    const requiredThumbnailmale = requiredMediaValue({
+      file: thumbMaleFile,
+      bodyValue: thumbnailmaleFromBody,
+    });
+    const requiredThumbnailfemale = requiredMediaValue({
+      file: thumbFemaleFile,
+      bodyValue: thumbnailfemaleFromBody,
+    });
+
+    if (!requiredVideomale || !requiredVideofemale || !requiredThumbnailmale || !requiredThumbnailfemale) {
+      return res.status(400).json({
+        ok: false,
+        message:
+          "videomale, videofemale, thumbnailmale, and thumbnailfemale are required (file upload or non-empty URL)",
+      });
+    }
 
     const videomale = maleVideoFile
       ? await gcsupload(
@@ -162,7 +219,10 @@ async function createExercise(req, res, next) {
     const thumbnailmale = thumbMaleFile
       ? await gcsupload(
           pathMen(),
-          withForcedOriginalName(thumbMaleFile, `thumbnail.${extFromMime(thumbMaleFile.mimetype)}`),
+          withForcedOriginalName(
+            thumbMaleFile,
+            `thumbnail.${extFromImageMime(thumbMaleFile.mimetype)}`
+          ),
           false
         )
       : thumbnailmaleFromBody != null && String(thumbnailmaleFromBody) !== ""
@@ -171,11 +231,36 @@ async function createExercise(req, res, next) {
     const thumbnailfemale = thumbFemaleFile
       ? await gcsupload(
           pathFemale(),
-          withForcedOriginalName(thumbFemaleFile, `thumbnail.${extFromMime(thumbFemaleFile.mimetype)}`),
+          withForcedOriginalName(
+            thumbFemaleFile,
+            `thumbnail.${extFromImageMime(thumbFemaleFile.mimetype)}`
+          ),
           false
         )
       : thumbnailfemaleFromBody != null && String(thumbnailfemaleFromBody) !== ""
         ? String(thumbnailfemaleFromBody)
+        : "";
+
+    const audioValue = audioFile
+      ? await gcsupload(
+          pathRoot(),
+          withForcedOriginalName(audioFile, `audio.${extFromAudioMime(audioFile.mimetype)}`),
+          false
+        )
+      : audio !== undefined
+        ? String(audio)
+        : "";
+    const focusAreaImageValue = focusAreaImageFile
+      ? await gcsupload(
+          pathRoot(),
+          withForcedOriginalName(
+            focusAreaImageFile,
+            `focus-area.${extFromImageMime(focusAreaImageFile.mimetype)}`
+          ),
+          false
+        )
+      : focusAreaImage !== undefined
+        ? String(focusAreaImage)
         : "";
 
     const exercise = await Exercise.create({
@@ -191,6 +276,9 @@ async function createExercise(req, res, next) {
       difficulty,
       ...(exerciseType !== undefined ? { exerciseType } : {}),
       ...(premium !== undefined ? { premium } : {}),
+      ...(calories !== undefined ? { calories } : {}),
+      audio: audioValue,
+      focusAreaImage: focusAreaImageValue,
       videomale,
       videofemale,
       thumbnailmale,
@@ -249,10 +337,32 @@ async function updateExercise(req, res, next) {
       }
       updates.exerciseType = exerciseType;
     }
+    if (body.calories !== undefined) {
+      const calories = parseNonNegativeNumber(body.calories);
+      if (calories === null) {
+        return res.status(400).json({ ok: false, message: "calories must be a non-negative number" });
+      }
+      updates.calories = calories;
+    }
+    if (body.audio !== undefined) updates.audio = String(body.audio);
+    if (body.focusAreaImage !== undefined) updates.focusAreaImage = String(body.focusAreaImage);
     if (body.videomale !== undefined) updates.videomale = body.videomale;
     if (body.videofemale !== undefined) updates.videofemale = body.videofemale;
     if (body.thumbnailmale !== undefined) updates.thumbnailmale = body.thumbnailmale;
     if (body.thumbnailfemale !== undefined) updates.thumbnailfemale = body.thumbnailfemale;
+
+    if (updates.videomale !== undefined && !String(updates.videomale).trim()) {
+      return res.status(400).json({ ok: false, message: "videomale cannot be empty" });
+    }
+    if (updates.videofemale !== undefined && !String(updates.videofemale).trim()) {
+      return res.status(400).json({ ok: false, message: "videofemale cannot be empty" });
+    }
+    if (updates.thumbnailmale !== undefined && !String(updates.thumbnailmale).trim()) {
+      return res.status(400).json({ ok: false, message: "thumbnailmale cannot be empty" });
+    }
+    if (updates.thumbnailfemale !== undefined && !String(updates.thumbnailfemale).trim()) {
+      return res.status(400).json({ ok: false, message: "thumbnailfemale cannot be empty" });
+    }
 
     const nextSlug = updates.slug !== undefined ? updates.slug : exercise.slug;
     if (updates.slug !== undefined && updates.slug !== exercise.slug) {
@@ -266,8 +376,11 @@ async function updateExercise(req, res, next) {
     const femaleVideoFile = req.files?.videofemale?.[0];
     const thumbMaleFile = req.files?.thumbnailmale?.[0];
     const thumbFemaleFile = req.files?.thumbnailfemale?.[0];
+    const audioFile = req.files?.audio?.[0];
+    const focusAreaImageFile = req.files?.focusAreaImage?.[0];
     const pathMen = () => exerciseGenderFolder(nextSlug, EXERCISE_GCS_MEN);
     const pathFemale = () => exerciseGenderFolder(nextSlug, EXERCISE_GCS_FEMALE);
+    const pathRoot = () => String(nextSlug || "").trim();
 
     if (maleVideoFile) {
       updates.videomale = await gcsupload(
@@ -288,7 +401,7 @@ async function updateExercise(req, res, next) {
         pathMen(),
         withForcedOriginalName(
           thumbMaleFile,
-          `thumbnail.${extFromMime(thumbMaleFile.mimetype)}`
+          `thumbnail.${extFromImageMime(thumbMaleFile.mimetype)}`
         ),
         false
       );
@@ -298,7 +411,24 @@ async function updateExercise(req, res, next) {
         pathFemale(),
         withForcedOriginalName(
           thumbFemaleFile,
-          `thumbnail.${extFromMime(thumbFemaleFile.mimetype)}`
+          `thumbnail.${extFromImageMime(thumbFemaleFile.mimetype)}`
+        ),
+        false
+      );
+    }
+    if (audioFile) {
+      updates.audio = await gcsupload(
+        pathRoot(),
+        withForcedOriginalName(audioFile, `audio.${extFromAudioMime(audioFile.mimetype)}`),
+        false
+      );
+    }
+    if (focusAreaImageFile) {
+      updates.focusAreaImage = await gcsupload(
+        pathRoot(),
+        withForcedOriginalName(
+          focusAreaImageFile,
+          `focus-area.${extFromImageMime(focusAreaImageFile.mimetype)}`
         ),
         false
       );
@@ -307,6 +437,18 @@ async function updateExercise(req, res, next) {
     Object.assign(exercise, updates);
     if (updates.title !== undefined && !String(exercise.title || "").trim()) {
       return res.status(400).json({ ok: false, message: "title cannot be empty" });
+    }
+    if (!String(exercise.videomale || "").trim()) {
+      return res.status(400).json({ ok: false, message: "videomale is required" });
+    }
+    if (!String(exercise.videofemale || "").trim()) {
+      return res.status(400).json({ ok: false, message: "videofemale is required" });
+    }
+    if (!String(exercise.thumbnailmale || "").trim()) {
+      return res.status(400).json({ ok: false, message: "thumbnailmale is required" });
+    }
+    if (!String(exercise.thumbnailfemale || "").trim()) {
+      return res.status(400).json({ ok: false, message: "thumbnailfemale is required" });
     }
     await exercise.save();
 
@@ -361,15 +503,35 @@ async function getExerciseById(req, res, next) {
   }
 }
 
+async function getExerciseBySlug(req, res, next) {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    if (!slug) {
+      return res.status(400).json({ ok: false, message: "invalid exercise slug" });
+    }
+
+    const exercise = await Exercise.findOne({ slug });
+    if (!exercise) {
+      return res.status(404).json({ ok: false, message: "exercise not found" });
+    }
+
+    return res.json({ ok: true, data: exercise });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+const LIST_SELECT =
+  "_id title slug category equipment premium difficulty exerciseType calories thumbnailmale thumbnailfemale";
+
+  const EXERCISE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
+
+
 async function getAllExercises(req, res, next) {
   try {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
-
-    if (req.query.exerciseType !== undefined && exerciseType === undefined) {
-      return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
-    }
 
     const filter = {};
     if (category) filter.category = category;
@@ -377,20 +539,15 @@ async function getAllExercises(req, res, next) {
     if (exerciseType) filter.exerciseType = exerciseType;
 
     const exercises = await Exercise.find(filter)
-      .sort({ createdAt: -1 })
-      .select(
-        "_id title slug muscleGroup videomale videofemale thumbnailmale thumbnailfemale equipment category premium difficulty exerciseType"
-      );
+      .sort({ title: 1 })
+      .select(LIST_SELECT );
     return res.json({ ok: true, data: exercises });
   } catch (err) {
     return next(err);
   }
 }
 
-const LIST_SELECT =
-  "_id title slug muscleGroup videomale videofemale thumbnailmale thumbnailfemale secondaryMuscles equipment category premium difficulty exerciseType";
 
-const EXERCISE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 
 /** Matches index { category: 1, difficulty: 1 }. */
 async function getExerciseByCategoryAndDifficulty(req, res, next) {
@@ -420,27 +577,17 @@ async function getExercisesByFilter(req, res, next) {
   try {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
+    const equipment = (req.query.equipment || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
-
-    if (req.query.exerciseType !== undefined && exerciseType === undefined) {
-      return res.status(400).json({ ok: false, message: "exerciseType must be a non-empty string" });
-    }
-
-    const hasFilter = Boolean(category) || Boolean(difficulty) || exerciseType !== undefined;
-    if (!hasFilter) {
-      return res.status(400).json({
-        ok: false,
-        message: "at least one of category, difficulty, or exerciseType is required",
-      });
-    }
 
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
+    if (equipment) filter.equipment = equipment;
     if (exerciseType) filter.exerciseType = exerciseType;
 
     const exercises = await Exercise.find(filter)
-      .sort({ createdAt: -1 })
+      .sort({ title: 1 })
       .select(LIST_SELECT)
       .lean();
 
@@ -450,7 +597,7 @@ async function getExercisesByFilter(req, res, next) {
   }
 }
 
-async function getAlphaSortedExercises(req, res) {
+async function getAlphaSortedExercises(req, res, next) {
   try {
     const exercises = await Exercise.find({})
       .sort({ title: 1 })
@@ -468,6 +615,7 @@ module.exports = {
   updateExercise,
   deleteExerciseFolder,
   getExerciseById,
+  getExerciseBySlug,
   getAllExercises,
   getExerciseByCategoryAndDifficulty,
   getExercisesByFilter,

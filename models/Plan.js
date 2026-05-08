@@ -5,7 +5,10 @@ const PlanExerciseSchema = new mongoose.Schema(
     exercise: { type: mongoose.Schema.Types.ObjectId, ref: "Exercise", required: true },
     slug: { type: String, required: true, trim: true },
     title: { type: String, required: true, trim: true },
-    duration: { type: Number, default: 0, min: 0 },
+    duration: { type: Number, required: true, min: 0 },
+    category: { type: String, required: true, trim: true },
+    thumbnailmale: { type: String, required: true, trim: true },
+    thumbnailfemale: { type: String, required: true, trim: true },
   },
   { _id: false }
 );
@@ -26,9 +29,9 @@ const PlanSchema = new mongoose.Schema({
     required: true,
   },
   premium: { type: Boolean, default: false },
-  bannerImage: { type: String, required: true },
+  bannerImage_male: { type: String, required: true },
   bannerImage_female: { type: String, required: true },
-  squareImage: { type: String, required: true },
+  squareImage_male: { type: String, required: true },
   squareImage_female: { type: String, required: true },
   duration: { type: Number, default: 0, min: 0 },
   numberofExercises: { type: Number, default: 0, min: 0 },
