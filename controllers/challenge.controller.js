@@ -2,8 +2,7 @@ const Challenge = require("../models/Challenge");
 const ChallengeDay = require("../models/ChallengeDay");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
-const { gcsupload } = require("../config/gcsupload");
-const { gcsdelete } = require("../config/gcsdelete");
+const { gcsupload, gcsdelete } = require("../config/storage.js");
 
 const CHALLENGE_PLAN_GCS_PREFIX = "challenges";
 const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
@@ -473,6 +472,7 @@ async function createChallenge(req, res) {
     const challengeBody = {
       slug,
       name,
+      outcome: body.outcome !== undefined ? String(body.outcome) : "",
       durationDays,
       weeks: metaWeeks,
       ...(goal ? { goal } : {}),
@@ -520,6 +520,10 @@ async function updateChallenge(req, res) {
 
     const body = req.body && typeof req.body === "object" ? req.body : {};
     const updates = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, "outcome")) {
+      updates.outcome = String(body.outcome);
+    }
 
     if (Object.prototype.hasOwnProperty.call(body, "name")) {
       const n = String(body.name).trim();
@@ -638,7 +642,7 @@ async function updateChallenge(req, res) {
           await ChallengeDay.insertMany(
             previous.map(({ _id, __v, createdAt, updatedAt, ...rest }) => rest),
             { ordered: false }
-          ).catch(() => {});
+          ).catch(() => { });
         }
         throw err;
       }
@@ -841,7 +845,7 @@ async function updateChallengeDay(req, res) {
       const mg = Array.isArray(body.muscleGroups)
         ? body.muscleGroups.map(String)
         : typeof body.muscleGroups === "string"
-        ? (() => {
+          ? (() => {
             try {
               const parsed = JSON.parse(body.muscleGroups);
               return Array.isArray(parsed) ? parsed.map(String) : [];
@@ -852,7 +856,7 @@ async function updateChallengeDay(req, res) {
                 .filter(Boolean);
             }
           })()
-        : [];
+          : [];
       dayUpdates.muscleGroups = mg;
     }
 

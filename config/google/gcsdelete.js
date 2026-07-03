@@ -1,4 +1,4 @@
-const { gcpInit } = require("./gcpInit");
+const { gcpInit } = require("./gcpInit.js");
 
 async function gcsdelete(cat_name, isAudio, sound_name) {
   try {

@@ -54,6 +54,7 @@ function buildEnumPayload() {
   const planDifficulty = getEnumValues(Plan, "difficulty");
   const planGoal = getEnumValues(Plan, "goal");
   const planPremium = getEnumValues(Plan, "premium");
+  const planFocusArea = getEnumValues(Plan, "focus_area");
   const challengeDifficulty = getEnumValues(Challenge, "difficulty");
   const challengeGoal = getEnumValues(Challenge, "goal");
   const challengePremium = getEnumValues(Challenge, "premium");
@@ -67,6 +68,8 @@ function buildEnumPayload() {
     goal,
     exerciseType,
     premium,
+    focus_area: planFocusArea,
+    focusArea: planFocusArea,
     muscleGroup: MUSCLE_GROUP_OPTIONS,
     equipment: EQUIPMENT_OPTIONS,
     category: CATEGORY_OPTIONS,
@@ -83,6 +86,8 @@ function buildEnumPayload() {
         difficulty: planDifficulty,
         goal: planGoal,
         premium: planPremium,
+        focus_area: planFocusArea,
+        focusArea: planFocusArea,
       },
       challenges: {
         difficulty: challengeDifficulty,

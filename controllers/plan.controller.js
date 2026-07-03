@@ -1,8 +1,7 @@
 const Plan = require("../models/Plan");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
-const { gcsupload } = require("../config/gcsupload");
-const { gcsdelete } = require("../config/gcsdelete");
+const { gcsupload, gcsdelete } = require("../config/storage.js");
 
 const PLAN_GCS_PREFIX = "plans";
 
@@ -45,7 +44,8 @@ function getPayload(req) {
 }
 
 const PLAN_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
-const PLAN_GOALS = new Set(["weight_loss", "muscle_building", "stay_fit", "mobility_relax"]);
+const PLAN_GOALS = new Set(["weight_loss", "muscle_building", "keep_fit", "get_toned", "mobility_relax"]);
+const PLAN_FOCUS_AREAS = new Set(["Arms", "Abs", "Legs", "Back", "Chest", "Full Body"]);
 
 function parseNonNegativeNumber(value, fallback) {
   if (value == null || value === "") return fallback;
@@ -96,17 +96,31 @@ function extractExerciseLookup(item) {
     return null;
   }
   if (typeof item === "object" && !Array.isArray(item)) {
-    const duration = parseExerciseDuration(item.duration);
+    const duration = item.duration !== undefined && item.duration !== null && item.duration !== ""
+      ? parseExerciseDuration(item.duration)
+      : undefined;
     if (duration === null) {
+      return null;
+    }
+    const sets = item.sets !== undefined && item.sets !== null && item.sets !== ""
+      ? parseExerciseDuration(item.sets)
+      : undefined;
+    if (sets === null) {
+      return null;
+    }
+    const reps = item.reps !== undefined && item.reps !== null && item.reps !== ""
+      ? parseExerciseDuration(item.reps)
+      : undefined;
+    if (reps === null) {
       return null;
     }
     const id = String(item.exerciseId || item._id || "").trim();
     if (id && mongoose.isValidObjectId(id)) {
-      return { kind: "id", value: id, duration };
+      return { kind: "id", value: id, duration, sets, reps };
     }
     const slug = String(item.exerciseSlug || item.slug || "").trim();
     if (slug) {
-      return { kind: "slug", value: slug, duration };
+      return { kind: "slug", value: slug, duration, sets, reps };
     }
     return null;
   }
@@ -184,6 +198,8 @@ async function resolvePlanExercises(raw) {
       slug: doc.slug,
       title: doc.title,
       duration: key.duration,
+      sets: key.sets,
+      reps: key.reps,
       category: doc.category,
       thumbnailmale: doc.thumbnailmale,
       thumbnailfemale: doc.thumbnailfemale,
@@ -210,9 +226,23 @@ async function createPlan(req, res, next) {
     if (!goalRaw || !PLAN_GOALS.has(goalRaw)) {
       return res.status(400).json({
         ok: false,
-        message: "goal is required and must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+        message: "goal is required and must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
       });
     }
+
+    const focus_area_raw = body.focus_area !== undefined ? body.focus_area : body.focusArea;
+    let focus_area;
+    if (focus_area_raw != null && String(focus_area_raw).trim() !== "") {
+      focus_area = String(focus_area_raw).trim();
+      if (!PLAN_FOCUS_AREAS.has(focus_area)) {
+        return res.status(400).json({
+          ok: false,
+          message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
+        });
+      }
+    }
+
+    const outcome = body.outcome !== undefined ? String(body.outcome) : "";
 
     let difficulty = "beginner";
     if (difficultyRaw) {
@@ -246,9 +276,11 @@ async function createPlan(req, res, next) {
       slug: e.slug,
       title: e.title,
       duration: e.duration,
+      sets: e.sets,
+      reps: e.reps,
       category: e.category,
       thumbnailmale: e.thumbnailmale,
-      thumbnailfemale:e.thumbnailfemale
+      thumbnailfemale: e.thumbnailfemale
     }));
 
     let numberofExercises = parseNonNegativeNumber(body.numberofExercises, undefined);
@@ -323,8 +355,10 @@ async function createPlan(req, res, next) {
       name,
       slug,
       description,
+      outcome,
       difficulty,
       goal: goalRaw,
+      ...(focus_area !== undefined ? { focus_area } : {}),
       bannerImage_male,
       bannerImage_female,
       squareImage_male,
@@ -440,6 +474,8 @@ async function getAllPlans(req, res, next) {
   try {
     const difficulty = String(req.query.difficulty || "").trim();
     const goal = String(req.query.goal || "").trim();
+    const focus_area_raw = req.query.focus_area || req.query.focusArea || "";
+    const focus_area = String(focus_area_raw).trim();
 
     const filter = {};
     if (difficulty) {
@@ -452,25 +488,28 @@ async function getAllPlans(req, res, next) {
       filter.difficulty = difficulty;
     }
     if (goal) {
-      if (!difficulty) {
-        return res.status(400).json({
-          ok: false,
-          message: "difficulty is required when filtering by goal (indexed with difficulty)",
-        });
-      }
       if (!PLAN_GOALS.has(goal)) {
         return res.status(400).json({
           ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+          message: "goal must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
         });
       }
       filter.goal = goal;
+    }
+    if (focus_area) {
+      if (!PLAN_FOCUS_AREAS.has(focus_area)) {
+        return res.status(400).json({
+          ok: false,
+          message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
+        });
+      }
+      filter.focus_area = focus_area;
     }
 
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
       .select(
-        "name slug difficulty goal premium squareImage_male squareImage_female duration calories numberofExercises"
+        "name slug difficulty goal focus_area outcome premium squareImage_male squareImage_female duration calories numberofExercises"
       )
       .lean();
 
@@ -484,34 +523,45 @@ async function getPlansByFilter(req, res, next) {
   try {
     const difficulty = String(req.query.difficulty || "").trim();
     const goal = String(req.query.goal || "").trim();
+    const focus_area_raw = req.query.focus_area || req.query.focusArea || "";
+    const focus_area = String(focus_area_raw).trim();
 
-    if (!difficulty || !goal) {
-      return res.status(400).json({
-        ok: false,
-        message: "query params difficulty and goal are both required",
-      });
+    const filter = {};
+
+    if (difficulty) {
+      if (!PLAN_DIFFICULTIES.has(difficulty)) {
+        return res.status(400).json({
+          ok: false,
+          message: "difficulty must be one of: beginner, intermediate, advanced",
+        });
+      }
+      filter.difficulty = difficulty;
     }
 
-    if (!PLAN_DIFFICULTIES.has(difficulty)) {
-      return res.status(400).json({
-        ok: false,
-        message: "difficulty must be one of: beginner, intermediate, advanced",
-      });
+    if (goal) {
+      if (!PLAN_GOALS.has(goal)) {
+        return res.status(400).json({
+          ok: false,
+          message: "goal must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
+        });
+      }
+      filter.goal = goal;
     }
 
-    if (!PLAN_GOALS.has(goal)) {
-      return res.status(400).json({
-        ok: false,
-        message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
-      });
+    if (focus_area) {
+      if (!PLAN_FOCUS_AREAS.has(focus_area)) {
+        return res.status(400).json({
+          ok: false,
+          message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
+        });
+      }
+      filter.focus_area = focus_area;
     }
-
-    const filter = { difficulty, goal };
 
     const plans = await Plan.find(filter)
       .sort({ name: 1 })
       .select(
-        "name slug difficulty goal premium squareImage_male squareImage_female duration calories numberofExercises"
+        "name slug difficulty goal focus_area outcome premium squareImage_male squareImage_female duration calories numberofExercises"
       )
       .lean();
 
@@ -578,10 +628,30 @@ async function updatePlan(req, res, next) {
       if (!PLAN_GOALS.has(g)) {
         return res.status(400).json({
           ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, stay_fit, mobility_relax",
+          message: "goal must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
         });
       }
       updates.goal = g;
+    }
+
+    if (body.outcome !== undefined) {
+      updates.outcome = String(body.outcome);
+    }
+
+    const focus_area_raw = body.focus_area !== undefined ? body.focus_area : body.focusArea;
+    if (focus_area_raw !== undefined) {
+      if (focus_area_raw === null || String(focus_area_raw).trim() === "") {
+        updates.focus_area = undefined;
+      } else {
+        const fa = String(focus_area_raw).trim();
+        if (!PLAN_FOCUS_AREAS.has(fa)) {
+          return res.status(400).json({
+            ok: false,
+            message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
+          });
+        }
+        updates.focus_area = fa;
+      }
     }
 
     if (body.premium !== undefined) {
@@ -611,6 +681,8 @@ async function updatePlan(req, res, next) {
         slug: e.slug,
         title: e.title,
         duration: e.duration,
+        sets: e.sets,
+        reps: e.reps,
         category: e.category,
         thumbnailmale: e.thumbnailmale,
         thumbnailfemale: e.thumbnailfemale,

@@ -23,6 +23,7 @@ const ChallengeSchema = new mongoose.Schema(
   {
     slug: { type: String, required: true, unique: true, trim: true },
     name: { type: String, required: true, trim: true },
+    outcome: { type: String, default: "" },
     goal: {
       type: String,
       enum: ["weight_loss", "muscle_building", "stay_fit", "mobility_relax"],

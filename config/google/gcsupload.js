@@ -1,4 +1,4 @@
-const { gcpInit } = require("./gcpInit");
+const { gcpInit } = require("./gcpInit.js");
 
 async function gcsupload(cat_name, filename, isAudio, sound_name) {
   try {

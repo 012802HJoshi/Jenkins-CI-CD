@@ -1,5 +1,9 @@
 # Fitness Exercises (Express)
 
+## API Documentation
+
+Full step-by-step API documentation is available in [docs/API.md](docs/API.md).
+
 ## Setup
 
 ```bash

@@ -1,7 +1,6 @@
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
-const { gcsupload } = require("../config/gcsupload");
-const { gcsdelete } = require("../config/gcsdelete");
+const { gcsupload, gcsdelete } = require("../config/storage.js");
 
 /** GCS layout: `<slug>/men/…`, `<slug>/female/…`, and `<slug>/exercise.json` at slug root. */
 const EXERCISE_GCS_MEN = "men";
@@ -141,7 +140,8 @@ async function createExercise(req, res, next) {
     }
 
     const instructions = parseStringArray(body.instructions);
-    const importantPoints = parseStringArray(body.importantPoints);
+    const common_mistakes = parseStringArray(body.common_mistakes);
+    const breathing_tips = parseStringArray(body.breathing_tips);
     const exerciseType = parseExerciseType(body.exerciseType);
     const premium = parsePremiumString(body.premium);
     const calories = parseNonNegativeNumber(body.calories);
@@ -199,66 +199,66 @@ async function createExercise(req, res, next) {
 
     const videomale = maleVideoFile
       ? await gcsupload(
-          pathMen(),
-          withForcedOriginalName(maleVideoFile, "video.mp4"),
-          false
-        )
+        pathMen(),
+        withForcedOriginalName(maleVideoFile, "video.mp4"),
+        false
+      )
       : bodyVideomale != null && String(bodyVideomale) !== ""
         ? String(bodyVideomale)
         : "";
     const videofemale = femaleVideoFile
       ? await gcsupload(
-          pathFemale(),
-          withForcedOriginalName(femaleVideoFile, "video.mp4"),
-          false
-        )
+        pathFemale(),
+        withForcedOriginalName(femaleVideoFile, "video.mp4"),
+        false
+      )
       : bodyVideofemale != null && String(bodyVideofemale) !== ""
         ? String(bodyVideofemale)
         : "";
 
     const thumbnailmale = thumbMaleFile
       ? await gcsupload(
-          pathMen(),
-          withForcedOriginalName(
-            thumbMaleFile,
-            `thumbnail.${extFromImageMime(thumbMaleFile.mimetype)}`
-          ),
-          false
-        )
+        pathMen(),
+        withForcedOriginalName(
+          thumbMaleFile,
+          `thumbnail.${extFromImageMime(thumbMaleFile.mimetype)}`
+        ),
+        false
+      )
       : thumbnailmaleFromBody != null && String(thumbnailmaleFromBody) !== ""
         ? String(thumbnailmaleFromBody)
         : "";
     const thumbnailfemale = thumbFemaleFile
       ? await gcsupload(
-          pathFemale(),
-          withForcedOriginalName(
-            thumbFemaleFile,
-            `thumbnail.${extFromImageMime(thumbFemaleFile.mimetype)}`
-          ),
-          false
-        )
+        pathFemale(),
+        withForcedOriginalName(
+          thumbFemaleFile,
+          `thumbnail.${extFromImageMime(thumbFemaleFile.mimetype)}`
+        ),
+        false
+      )
       : thumbnailfemaleFromBody != null && String(thumbnailfemaleFromBody) !== ""
         ? String(thumbnailfemaleFromBody)
         : "";
 
     const audioValue = audioFile
       ? await gcsupload(
-          pathRoot(),
-          withForcedOriginalName(audioFile, `audio.${extFromAudioMime(audioFile.mimetype)}`),
-          false
-        )
+        pathRoot(),
+        withForcedOriginalName(audioFile, `audio.${extFromAudioMime(audioFile.mimetype)}`),
+        false
+      )
       : audio !== undefined
         ? String(audio)
         : "";
     const focusAreaImageValue = focusAreaImageFile
       ? await gcsupload(
-          pathRoot(),
-          withForcedOriginalName(
-            focusAreaImageFile,
-            `focus-area.${extFromImageMime(focusAreaImageFile.mimetype)}`
-          ),
-          false
-        )
+        pathRoot(),
+        withForcedOriginalName(
+          focusAreaImageFile,
+          `focus-area.${extFromImageMime(focusAreaImageFile.mimetype)}`
+        ),
+        false
+      )
       : focusAreaImage !== undefined
         ? String(focusAreaImage)
         : "";
@@ -268,7 +268,8 @@ async function createExercise(req, res, next) {
       slug,
       description,
       instructions,
-      importantPoints,
+      common_mistakes,
+      breathing_tips,
       muscleGroup,
       secondaryMuscles,
       equipment,
@@ -329,7 +330,8 @@ async function updateExercise(req, res, next) {
     }
     if (body.difficulty !== undefined) updates.difficulty = body.difficulty;
     if (body.instructions !== undefined) updates.instructions = parseStringArray(body.instructions);
-    if (body.importantPoints !== undefined) updates.importantPoints = parseStringArray(body.importantPoints);
+    if (body.common_mistakes !== undefined) updates.common_mistakes = parseStringArray(body.common_mistakes);
+    if (body.breathing_tips !== undefined) updates.breathing_tips = parseStringArray(body.breathing_tips);
     if (body.exerciseType !== undefined) {
       const exerciseType = parseExerciseType(body.exerciseType);
       if (exerciseType === undefined) {
@@ -524,7 +526,7 @@ async function getExerciseBySlug(req, res, next) {
 const LIST_SELECT =
   "_id title slug category equipment premium difficulty exerciseType calories thumbnailmale thumbnailfemale";
 
-  const EXERCISE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
+const EXERCISE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 
 
 async function getAllExercises(req, res, next) {
@@ -540,7 +542,7 @@ async function getAllExercises(req, res, next) {
 
     const exercises = await Exercise.find(filter)
       .sort({ title: 1 })
-      .select(LIST_SELECT );
+      .select(LIST_SELECT);
     return res.json({ ok: true, data: exercises });
   } catch (err) {
     return next(err);

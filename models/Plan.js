@@ -5,7 +5,9 @@ const PlanExerciseSchema = new mongoose.Schema(
     exercise: { type: mongoose.Schema.Types.ObjectId, ref: "Exercise", required: true },
     slug: { type: String, required: true, trim: true },
     title: { type: String, required: true, trim: true },
-    duration: { type: Number, required: true, min: 0 },
+    duration: { type: Number, required: false, min: 0 },
+    sets: { type: Number, required: false, min: 0 },
+    reps: { type: Number, required: false, min: 0 },
     category: { type: String, required: true, trim: true },
     thumbnailmale: { type: String, required: true, trim: true },
     thumbnailfemale: { type: String, required: true, trim: true },
@@ -17,6 +19,7 @@ const PlanSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   slug: { type: String, required: true, unique: true, trim: true },
   description: { type: String, default: "" },
+  outcome: { type: String, default: "" },
   difficulty: {
     type: String,
     enum: ["beginner", "intermediate", "advanced"],
@@ -25,8 +28,12 @@ const PlanSchema = new mongoose.Schema({
   },
   goal: {
     type: String,
-    enum: ["weight_loss", "muscle_building", "stay_fit", "mobility_relax"],
+    enum: ["weight_loss", "muscle_building", "keep_fit", "get_toned", "mobility_relax"],
     required: true,
+  },
+  focus_area: {
+    type: String,
+    enum: ["Arms", "Abs", "Legs", "Back", "Chest", "Full Body"],
   },
   premium: { type: String, enum: ["true", "false"], default: "false" },
   bannerImage_male: { type: String, required: true },
@@ -39,6 +46,6 @@ const PlanSchema = new mongoose.Schema({
   exercises: { type: [PlanExerciseSchema], default: [] },
 });
 
-PlanSchema.index({ difficulty: 1, goal: 1 });
+PlanSchema.index({ difficulty: 1, goal: 1, focus_area: 1 });
 
 module.exports = mongoose.model("Plan", PlanSchema, "plans");
