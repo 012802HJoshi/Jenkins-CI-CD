@@ -1,0 +1,110 @@
+name: Deploy To VM 
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Verify Required Secrets are steps
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_PORT: ${{ secrets.VM_PORT }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+          VM_APP_DIR: ${{ secrets.VM_APP_DIR }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          missing=0
+          check() {
+            name="$1"
+            val="$2"
+            if [ -z "$val" ]; then
+              echo "::error::Secret $name is missing or empty. Add it under Settings → Secrets and variables → Actions."
+              missing=1
+            else
+              echo "OK: $name is set (value hidden)"
+            fi
+          }
+       
+          check VM_HOST "$VM_HOST"
+          check VM_USER "$VM_USER"
+          check VM_PORT "$VM_PORT"
+          check VM_APP_DIR "$VM_APP_DIR"
+
+          if [ -z "$ENV_FILE" ]; then
+             echo "::warning::ENV_FILE is empty — CI will not write .env (use a secret or manage .env on the VM)"
+          else
+             echo "OK: ENV_FILE is set (value hidden)"
+          fi
+          
+          if [ -z "$VM_SSH_KEY" ]; then
+              echo "::error::VM_SSH_KEY is missing or empty. Add it under Settings → Secrets and variables → Actions."
+              missing=1
+          else
+              echo "OK: VM_SSH_KEY is set (value hidden)"
+          fi
+
+          if [ $missing -ne 0 ]; then
+            echo "::error::One or more required secrets are missing. Deployment cannot proceed."
+            exit 1
+          fi  
+
+      - name: Deploy over VM_SSH_KEY
+        uses: appleboy/ssh-action@v1.0.0
+        env: 
+          APP_DIR: ${{ secrets.VM_APP_DIR }}
+          BRANCH: ${{ github.ref_name }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          port: ${{ secrets.VM_PORT }}
+          script_stop: true
+          envs: APP_DIR,ENV_FILE,BRANCH,REPO_TOKEN,REPO_NAME
+          script: |
+            set -euxo pipefail
+
+            if [ ! -d "$APP_DIR/.git" ]; then
+               echo "Repository not found at $APP_DIR. Cloning it automatically..."
+               mkdir -p "$(dirname "$APP_DIR")"
+               if [ -d "$APP_DIR" ]; then
+                 rm -rf "$APP_DIR"
+               fi
+               git clone "https://x-access-token:${REPO_TOKEN}@github.com/${REPO_NAME}.git" "$APP_DIR"
+            fi
+             
+            cd "$APP_DIR"
+            git remote set-url origin "https://x-access-token:${REPO_TOKEN}@github.com/${REPO_NAME}.git"
+
+            echo "Deploying as user $(whoami)"
+            node -v
+            npm -v
+            git fetch origin 
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH" 
+
+            npm ci --omit=dev 
+            
+            if [ -n "$ENV_FILE" ]; then
+               printf "%s" "$ENV_FILE" > .env
+            fi
+
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 describe fitness >/dev/null 2>&1 && pm2 restart fitness --update-env || pm2 start npm --name fitness -- run start
+              pm2 save || true
+            else
+              pkill -f "node server.js" || true
+              nohup npm run start > app.log 2>&1 </dev/null &
+            fi
