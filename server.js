@@ -24,12 +24,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.get("/", (req, res) => {
-  res.json({ ok: true, message: "Fitness Exercises API V0.3.3" });
+  res.json({ ok: true, message: "Fitness Exercises API V0.0.1" });
 });
 
 app.use("/api/exercises", exerciseRoutes);
 app.use("/api/challenges", challengeRoutes);
-app.use('/api/plans',planRoutes);
+app.use('/api/plans', planRoutes);
 app.use("/api/enums", enumRoutes);
 
 app.use((err, req, res, next) => {
