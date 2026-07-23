@@ -10,7 +10,7 @@ const ChallengeDayExerciseSchema = new mongoose.Schema(
     duration: { type: Number, required: true, min: 0 },
     category: { type: String, required: true, trim: true },
     thumbnailmale: { type: String, required: true, trim: true },
-    thumbnailfemale: { type: String, required: true, trim: true },
+    thumbnailfemale: { type: String, required: false, default: "", trim: true },
   },
   { _id: false }
 );

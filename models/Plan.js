@@ -10,7 +10,7 @@ const PlanExerciseSchema = new mongoose.Schema(
     reps: { type: Number, required: false, min: 0 },
     category: { type: String, required: true, trim: true },
     thumbnailmale: { type: String, required: true, trim: true },
-    thumbnailfemale: { type: String, required: true, trim: true },
+    thumbnailfemale: { type: String, required: false, default: "", trim: true },
   },
   { _id: false }
 );

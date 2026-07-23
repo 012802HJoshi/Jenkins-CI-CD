@@ -189,11 +189,10 @@ async function createExercise(req, res, next) {
       bodyValue: thumbnailfemaleFromBody,
     });
 
-    if (!requiredVideomale || !requiredVideofemale || !requiredThumbnailmale || !requiredThumbnailfemale) {
+    if (!requiredVideomale || !requiredThumbnailmale) {
       return res.status(400).json({
         ok: false,
-        message:
-          "videomale, videofemale, thumbnailmale, and thumbnailfemale are required (file upload or non-empty URL)",
+        message: "videomale and thumbnailmale are required (file upload or non-empty URL)",
       });
     }
 
@@ -356,14 +355,8 @@ async function updateExercise(req, res, next) {
     if (updates.videomale !== undefined && !String(updates.videomale).trim()) {
       return res.status(400).json({ ok: false, message: "videomale cannot be empty" });
     }
-    if (updates.videofemale !== undefined && !String(updates.videofemale).trim()) {
-      return res.status(400).json({ ok: false, message: "videofemale cannot be empty" });
-    }
     if (updates.thumbnailmale !== undefined && !String(updates.thumbnailmale).trim()) {
       return res.status(400).json({ ok: false, message: "thumbnailmale cannot be empty" });
-    }
-    if (updates.thumbnailfemale !== undefined && !String(updates.thumbnailfemale).trim()) {
-      return res.status(400).json({ ok: false, message: "thumbnailfemale cannot be empty" });
     }
 
     const nextSlug = updates.slug !== undefined ? updates.slug : exercise.slug;
@@ -443,14 +436,8 @@ async function updateExercise(req, res, next) {
     if (!String(exercise.videomale || "").trim()) {
       return res.status(400).json({ ok: false, message: "videomale is required" });
     }
-    if (!String(exercise.videofemale || "").trim()) {
-      return res.status(400).json({ ok: false, message: "videofemale is required" });
-    }
     if (!String(exercise.thumbnailmale || "").trim()) {
       return res.status(400).json({ ok: false, message: "thumbnailmale is required" });
-    }
-    if (!String(exercise.thumbnailfemale || "").trim()) {
-      return res.status(400).json({ ok: false, message: "thumbnailfemale is required" });
     }
     await exercise.save();
 
