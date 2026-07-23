@@ -28,6 +28,28 @@ function extFromAudioMime(mimetype) {
   return "mp3";
 }
 
+function extFromVideoMime(file) {
+  if (!file) return "mp4";
+  const mime = String(file.mimetype || "").toLowerCase();
+  const name = String(file.originalname || "").toLowerCase();
+
+  if (mime.includes("json") || name.endsWith(".json")) return "json";
+  if (mime.includes("webm") || name.endsWith(".webm")) return "webm";
+  if (mime.includes("mov") || mime.includes("quicktime") || name.endsWith(".mov")) return "mov";
+  if (mime.includes("avi") || name.endsWith(".avi")) return "avi";
+  if (mime.includes("mkv") || name.endsWith(".mkv")) return "mkv";
+
+  const parts = name.split(".");
+  if (parts.length > 1) {
+    const ext = parts.pop();
+    if (ext && ext.length <= 5 && /^[a-z0-9]+$/i.test(ext)) {
+      return ext;
+    }
+  }
+
+  return "mp4";
+}
+
 function parseStringArray(value) {
   if (value == null) return [];
   if (Array.isArray(value)) return value.map(String).filter(Boolean);
@@ -199,7 +221,7 @@ async function createExercise(req, res, next) {
     const videomale = maleVideoFile
       ? await gcsupload(
         pathMen(),
-        withForcedOriginalName(maleVideoFile, "video.mp4"),
+        withForcedOriginalName(maleVideoFile, `video.${extFromVideoMime(maleVideoFile)}`),
         false
       )
       : bodyVideomale != null && String(bodyVideomale) !== ""
@@ -208,7 +230,7 @@ async function createExercise(req, res, next) {
     const videofemale = femaleVideoFile
       ? await gcsupload(
         pathFemale(),
-        withForcedOriginalName(femaleVideoFile, "video.mp4"),
+        withForcedOriginalName(femaleVideoFile, `video.${extFromVideoMime(femaleVideoFile)}`),
         false
       )
       : bodyVideofemale != null && String(bodyVideofemale) !== ""
@@ -380,14 +402,14 @@ async function updateExercise(req, res, next) {
     if (maleVideoFile) {
       updates.videomale = await gcsupload(
         pathMen(),
-        withForcedOriginalName(maleVideoFile, "video.mp4"),
+        withForcedOriginalName(maleVideoFile, `video.${extFromVideoMime(maleVideoFile)}`),
         false
       );
     }
     if (femaleVideoFile) {
       updates.videofemale = await gcsupload(
         pathFemale(),
-        withForcedOriginalName(femaleVideoFile, "video.mp4"),
+        withForcedOriginalName(femaleVideoFile, `video.${extFromVideoMime(femaleVideoFile)}`),
         false
       );
     }
