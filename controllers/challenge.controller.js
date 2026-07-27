@@ -2,7 +2,7 @@ const Challenge = require("../models/Challenge");
 const ChallengeDay = require("../models/ChallengeDay");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
-const { gcsupload, gcsdelete } = require("../config/storage.js");
+const { gcsupload, gcsdelete, toRelativePath } = require("../config/storage.js");
 
 const CHALLENGE_PLAN_GCS_PREFIX = "challenges";
 const CHALLENGE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
@@ -375,7 +375,7 @@ async function uploadBanners({ folder, files, body }) {
       false
     );
   } else if (Object.prototype.hasOwnProperty.call(body, "banner_male")) {
-    result.banner_male = String(body.banner_male || "").trim();
+    result.banner_male = toRelativePath(body.banner_male);
   }
   if (femaleFile) {
     const ext = extFromMime(femaleFile.mimetype);
@@ -385,7 +385,7 @@ async function uploadBanners({ folder, files, body }) {
       false
     );
   } else if (Object.prototype.hasOwnProperty.call(body, "banner_female")) {
-    result.banner_female = String(body.banner_female || "").trim();
+    result.banner_female = toRelativePath(body.banner_female);
   }
   return result;
 }

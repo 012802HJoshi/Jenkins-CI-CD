@@ -26,7 +26,7 @@ async function gcsupload(cat_name, filename, isAudio, sound_name) {
       writeStream.end(filename.buffer);
     });
 
-    return `https://storage.googleapis.com/${bucketName}/${directory}`;
+    return directory;
   } catch (err) {
     console.log(err);
     throw err;

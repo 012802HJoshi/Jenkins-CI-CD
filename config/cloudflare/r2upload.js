@@ -36,14 +36,7 @@ async function r2upload(cat_name, filename, isAudio, sound_name, destination) {
       }
     }
 
-    // Construct the public URL for R2 objects
-    const publicUrlBase = process.env.CLOUDFLARE_R2_PUBLIC_URL || "";
-
-    if (!publicUrlBase) {
-      throw new Error("Unable to determine Cloudflare R2 Public URL. Please specify CLOUDFLARE_R2_PUBLIC_URL in your environment.");
-    }
-
-    return `${publicUrlBase}/${directory}`;
+    return directory;
   } catch (err) {
     console.error("Error uploading to R2:", {
       message: err.message,

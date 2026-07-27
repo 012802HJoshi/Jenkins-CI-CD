@@ -1,6 +1,6 @@
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
-const { gcsupload, gcsdelete } = require("../config/storage.js");
+const { gcsupload, gcsdelete, toRelativePath } = require("../config/storage.js");
 
 /** GCS layout: `<slug>/men/…`, `<slug>/female/…`, and `<slug>/exercise.json` at slug root. */
 const EXERCISE_GCS_MEN = "men";
@@ -225,7 +225,7 @@ async function createExercise(req, res, next) {
         false
       )
       : bodyVideomale != null && String(bodyVideomale) !== ""
-        ? String(bodyVideomale)
+        ? toRelativePath(bodyVideomale)
         : "";
     const videofemale = femaleVideoFile
       ? await gcsupload(
@@ -234,7 +234,7 @@ async function createExercise(req, res, next) {
         false
       )
       : bodyVideofemale != null && String(bodyVideofemale) !== ""
-        ? String(bodyVideofemale)
+        ? toRelativePath(bodyVideofemale)
         : "";
 
     const thumbnailmale = thumbMaleFile
@@ -247,7 +247,7 @@ async function createExercise(req, res, next) {
         false
       )
       : thumbnailmaleFromBody != null && String(thumbnailmaleFromBody) !== ""
-        ? String(thumbnailmaleFromBody)
+        ? toRelativePath(thumbnailmaleFromBody)
         : "";
     const thumbnailfemale = thumbFemaleFile
       ? await gcsupload(
@@ -259,7 +259,7 @@ async function createExercise(req, res, next) {
         false
       )
       : thumbnailfemaleFromBody != null && String(thumbnailfemaleFromBody) !== ""
-        ? String(thumbnailfemaleFromBody)
+        ? toRelativePath(thumbnailfemaleFromBody)
         : "";
 
     const audioValue = audioFile
@@ -269,7 +269,7 @@ async function createExercise(req, res, next) {
         false
       )
       : audio !== undefined
-        ? String(audio)
+        ? toRelativePath(audio)
         : "";
     const focusAreaImageValue = focusAreaImageFile
       ? await gcsupload(
@@ -281,7 +281,7 @@ async function createExercise(req, res, next) {
         false
       )
       : focusAreaImage !== undefined
-        ? String(focusAreaImage)
+        ? toRelativePath(focusAreaImage)
         : "";
 
     const exercise = await Exercise.create({
@@ -367,12 +367,12 @@ async function updateExercise(req, res, next) {
       }
       updates.calories = calories;
     }
-    if (body.audio !== undefined) updates.audio = String(body.audio);
-    if (body.focusAreaImage !== undefined) updates.focusAreaImage = String(body.focusAreaImage);
-    if (body.videomale !== undefined) updates.videomale = body.videomale;
-    if (body.videofemale !== undefined) updates.videofemale = body.videofemale;
-    if (body.thumbnailmale !== undefined) updates.thumbnailmale = body.thumbnailmale;
-    if (body.thumbnailfemale !== undefined) updates.thumbnailfemale = body.thumbnailfemale;
+    if (body.audio !== undefined) updates.audio = toRelativePath(body.audio);
+    if (body.focusAreaImage !== undefined) updates.focusAreaImage = toRelativePath(body.focusAreaImage);
+    if (body.videomale !== undefined) updates.videomale = toRelativePath(body.videomale);
+    if (body.videofemale !== undefined) updates.videofemale = toRelativePath(body.videofemale);
+    if (body.thumbnailmale !== undefined) updates.thumbnailmale = toRelativePath(body.thumbnailmale);
+    if (body.thumbnailfemale !== undefined) updates.thumbnailfemale = toRelativePath(body.thumbnailfemale);
 
     if (updates.videomale !== undefined && !String(updates.videomale).trim()) {
       return res.status(400).json({ ok: false, message: "videomale cannot be empty" });

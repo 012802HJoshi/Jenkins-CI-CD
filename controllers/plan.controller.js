@@ -1,7 +1,7 @@
 const Plan = require("../models/Plan");
 const Exercise = require("../models/Exercise");
 const mongoose = require("mongoose");
-const { gcsupload, gcsdelete } = require("../config/storage.js");
+const { gcsupload, gcsdelete, toRelativePath } = require("../config/storage.js");
 
 const PLAN_GCS_PREFIX = "plans";
 
@@ -46,6 +46,19 @@ function getPayload(req) {
 const PLAN_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 const PLAN_GOALS = new Set(["weight_loss", "muscle_building", "keep_fit", "get_toned", "mobility_relax"]);
 const PLAN_FOCUS_AREAS = new Set(["Arms", "Abs", "Legs", "Back", "Chest", "Full Body"]);
+
+function parseMultiQueryParam(param) {
+  if (param == null) return [];
+  const rawList = Array.isArray(param) ? param : [param];
+  const items = [];
+  for (const item of rawList) {
+    const str = String(item || "").trim();
+    if (!str) continue;
+    const parts = str.split(",").map((s) => s.trim()).filter(Boolean);
+    items.push(...parts);
+  }
+  return [...new Set(items)];
+}
 
 function parseNonNegativeNumber(value, fallback) {
   if (value == null || value === "") return fallback;
@@ -303,10 +316,10 @@ async function createPlan(req, res, next) {
     const squareMaleFile = req.files?.squareImage_male?.[0];
     const bannerFemaleFile = req.files?.bannerImage_female?.[0];
     const squareFemaleFile = req.files?.squareImage_female?.[0];
-    const bannerMaleFromBody = String(body.bannerImage_male || "").trim();
-    const squareMaleFromBody = String(body.squareImage_male || "").trim();
-    const bannerFemaleFromBody = String(body.bannerImage_female || "").trim();
-    const squareFemaleFromBody = String(body.squareImage_female || "").trim();
+    const bannerMaleFromBody = toRelativePath(body.bannerImage_male);
+    const squareMaleFromBody = toRelativePath(body.squareImage_male);
+    const bannerFemaleFromBody = toRelativePath(body.bannerImage_female);
+    const squareFemaleFromBody = toRelativePath(body.squareImage_female);
 
     let bannerImage_male = bannerMaleFromBody;
     let squareImage_male = squareMaleFromBody;
@@ -470,40 +483,48 @@ async function getAPlanBySlug(req, res, next) {
   }
 }
 
+function buildPlanFilter(query) {
+  const filter = {};
+
+  const difficulties = parseMultiQueryParam(query.difficulty);
+  if (difficulties.length > 0) {
+    const invalid = difficulties.filter((d) => !PLAN_DIFFICULTIES.has(d));
+    if (invalid.length > 0) {
+      throw { status: 400, message: `difficulty contains invalid value(s): ${invalid.join(", ")}. Must be one of: beginner, intermediate, advanced` };
+    }
+    filter.difficulty = difficulties.length === 1 ? difficulties[0] : { $in: difficulties };
+  }
+
+  const goals = parseMultiQueryParam(query.goal);
+  if (goals.length > 0) {
+    const invalid = goals.filter((g) => !PLAN_GOALS.has(g));
+    if (invalid.length > 0) {
+      throw { status: 400, message: `goal contains invalid value(s): ${invalid.join(", ")}. Must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax` };
+    }
+    filter.goal = goals.length === 1 ? goals[0] : { $in: goals };
+  }
+
+  const focus_area_raw = query.focus_area || query.focusArea;
+  const focusAreas = parseMultiQueryParam(focus_area_raw);
+  if (focusAreas.length > 0) {
+    const invalid = focusAreas.filter((fa) => !PLAN_FOCUS_AREAS.has(fa));
+    if (invalid.length > 0) {
+      throw { status: 400, message: `focus_area contains invalid value(s): ${invalid.join(", ")}. Must be one of: Arms, Abs, Legs, Back, Chest, Full Body` };
+    }
+    filter.focus_area = focusAreas.length === 1 ? focusAreas[0] : { $in: focusAreas };
+  }
+
+  return filter;
+}
+
 async function getAllPlans(req, res, next) {
   try {
-    const difficulty = String(req.query.difficulty || "").trim();
-    const goal = String(req.query.goal || "").trim();
-    const focus_area_raw = req.query.focus_area || req.query.focusArea || "";
-    const focus_area = String(focus_area_raw).trim();
-
-    const filter = {};
-    if (difficulty) {
-      if (!PLAN_DIFFICULTIES.has(difficulty)) {
-        return res.status(400).json({
-          ok: false,
-          message: "difficulty must be one of: beginner, intermediate, advanced",
-        });
-      }
-      filter.difficulty = difficulty;
-    }
-    if (goal) {
-      if (!PLAN_GOALS.has(goal)) {
-        return res.status(400).json({
-          ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
-        });
-      }
-      filter.goal = goal;
-    }
-    if (focus_area) {
-      if (!PLAN_FOCUS_AREAS.has(focus_area)) {
-        return res.status(400).json({
-          ok: false,
-          message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
-        });
-      }
-      filter.focus_area = focus_area;
+    let filter;
+    try {
+      filter = buildPlanFilter(req.query);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ ok: false, message: err.message });
+      throw err;
     }
 
     const plans = await Plan.find(filter)
@@ -521,41 +542,12 @@ async function getAllPlans(req, res, next) {
 
 async function getPlansByFilter(req, res, next) {
   try {
-    const difficulty = String(req.query.difficulty || "").trim();
-    const goal = String(req.query.goal || "").trim();
-    const focus_area_raw = req.query.focus_area || req.query.focusArea || "";
-    const focus_area = String(focus_area_raw).trim();
-
-    const filter = {};
-
-    if (difficulty) {
-      if (!PLAN_DIFFICULTIES.has(difficulty)) {
-        return res.status(400).json({
-          ok: false,
-          message: "difficulty must be one of: beginner, intermediate, advanced",
-        });
-      }
-      filter.difficulty = difficulty;
-    }
-
-    if (goal) {
-      if (!PLAN_GOALS.has(goal)) {
-        return res.status(400).json({
-          ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
-        });
-      }
-      filter.goal = goal;
-    }
-
-    if (focus_area) {
-      if (!PLAN_FOCUS_AREAS.has(focus_area)) {
-        return res.status(400).json({
-          ok: false,
-          message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
-        });
-      }
-      filter.focus_area = focus_area;
+    let filter;
+    try {
+      filter = buildPlanFilter(req.query);
+    } catch (err) {
+      if (err.status) return res.status(err.status).json({ ok: false, message: err.message });
+      throw err;
     }
 
     const plans = await Plan.find(filter)
@@ -753,28 +745,28 @@ async function updatePlan(req, res, next) {
     }
 
     if (body.bannerImage_male !== undefined && !bannerMaleFile) {
-      const u = String(body.bannerImage_male).trim();
+      const u = toRelativePath(body.bannerImage_male);
       if (!u) {
         return res.status(400).json({ ok: false, message: "bannerImage_male URL cannot be empty" });
       }
       updates.bannerImage_male = u;
     }
     if (body.squareImage_male !== undefined && !squareMaleFile) {
-      const u = String(body.squareImage_male).trim();
+      const u = toRelativePath(body.squareImage_male);
       if (!u) {
         return res.status(400).json({ ok: false, message: "squareImage_male URL cannot be empty" });
       }
       updates.squareImage_male = u;
     }
     if (body.bannerImage_female !== undefined && !bannerFemaleFile) {
-      const u = String(body.bannerImage_female).trim();
+      const u = toRelativePath(body.bannerImage_female);
       if (!u) {
         return res.status(400).json({ ok: false, message: "bannerImage_female URL cannot be empty" });
       }
       updates.bannerImage_female = u;
     }
     if (body.squareImage_female !== undefined && !squareFemaleFile) {
-      const u = String(body.squareImage_female).trim();
+      const u = toRelativePath(body.squareImage_female);
       if (!u) {
         return res.status(400).json({ ok: false, message: "squareImage_female URL cannot be empty" });
       }
