@@ -780,7 +780,7 @@ async function updatePlan(req, res, next) {
 
     const populated = await Plan.findById(plan._id).populate(
       "exercises.exercise",
-      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale calories audio focusAreaImage"
+      "title slug muscleGroup equipment category difficulty videomale videofemale thumbnailmale thumbnailfemale calories audio focusAreaImage focusArea"
     );
 
     return res.json({ ok: true, data: populated });

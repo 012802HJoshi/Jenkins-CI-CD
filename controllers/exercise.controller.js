@@ -164,6 +164,7 @@ async function createExercise(req, res, next) {
     const instructions = parseStringArray(body.instructions);
     const common_mistakes = parseStringArray(body.common_mistakes);
     const breathing_tips = parseStringArray(body.breathing_tips);
+    const focusArea = parseStringArray(body.focusArea);
     const exerciseType = parseExerciseType(body.exerciseType);
     const premium = parsePremiumString(body.premium);
     const calories = parseNonNegativeNumber(body.calories);
@@ -296,6 +297,7 @@ async function createExercise(req, res, next) {
       equipment,
       category,
       difficulty,
+      focusArea,
       ...(exerciseType !== undefined ? { exerciseType } : {}),
       ...(premium !== undefined ? { premium } : {}),
       ...(calories !== undefined ? { calories } : {}),
@@ -353,6 +355,7 @@ async function updateExercise(req, res, next) {
     if (body.instructions !== undefined) updates.instructions = parseStringArray(body.instructions);
     if (body.common_mistakes !== undefined) updates.common_mistakes = parseStringArray(body.common_mistakes);
     if (body.breathing_tips !== undefined) updates.breathing_tips = parseStringArray(body.breathing_tips);
+    if (body.focusArea !== undefined) updates.focusArea = parseStringArray(body.focusArea);
     if (body.exerciseType !== undefined) {
       const exerciseType = parseExerciseType(body.exerciseType);
       if (exerciseType === undefined) {
@@ -533,7 +536,7 @@ async function getExerciseBySlug(req, res, next) {
 }
 
 const LIST_SELECT =
-  "_id title slug category equipment premium difficulty exerciseType calories thumbnailmale thumbnailfemale";
+  "_id title slug category equipment premium difficulty exerciseType calories focusArea focusAreaImage thumbnailmale thumbnailfemale";
 
 const EXERCISE_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 
@@ -543,11 +546,14 @@ async function getAllExercises(req, res, next) {
     const category = (req.query.category || "").trim();
     const difficulty = (req.query.difficulty || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
+    const focusAreaRaw = req.query.focusArea != null ? req.query.focusArea : req.query.focus_area;
+    const focusAreas = parseStringArray(focusAreaRaw);
 
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
     if (exerciseType) filter.exerciseType = exerciseType;
+    if (focusAreas.length > 0) filter.focusArea = { $in: focusAreas };
 
     const exercises = await Exercise.find(filter)
       .sort({ title: 1 })
@@ -590,12 +596,15 @@ async function getExercisesByFilter(req, res, next) {
     const difficulty = (req.query.difficulty || "").trim();
     const equipment = (req.query.equipment || "").trim();
     const exerciseType = parseExerciseType(req.query.exerciseType);
+    const focusAreaRaw = req.query.focusArea != null ? req.query.focusArea : req.query.focus_area;
+    const focusAreas = parseStringArray(focusAreaRaw);
 
     const filter = {};
     if (category) filter.category = category;
     if (difficulty) filter.difficulty = difficulty;
     if (equipment) filter.equipment = equipment;
     if (exerciseType) filter.exerciseType = exerciseType;
+    if (focusAreas.length > 0) filter.focusArea = { $in: focusAreas };
 
     const exercises = await Exercise.find(filter)
       .sort({ title: 1 })

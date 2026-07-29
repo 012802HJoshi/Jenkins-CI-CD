@@ -28,8 +28,9 @@ const ExerciseSchema = new mongoose.Schema(
     thumbnailmale: { type: String, required: true, trim: true },
     thumbnailfemale: { type: String, required: false, default: "", trim: true },
     calories: { type: Number, default: 0 },
-    audio: { type: String, required: false, default: "" },
-    focusAreaImage: { type: String, required: false, default: "" },
+    audio: { type: String, required: false, default: "", trim: true },
+    focusAreaImage: { type: String, required: false, default: "", trim: true },
+    focusArea: { type: [String], default: [] },
   }
 );
 
