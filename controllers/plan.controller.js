@@ -45,7 +45,7 @@ function getPayload(req) {
 
 const PLAN_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
 const PLAN_GOALS = new Set(["weight_loss", "muscle_building", "keep_fit", "get_toned", "mobility_relax"]);
-const PLAN_FOCUS_AREAS = new Set(["Arms", "Abs", "Legs", "Back", "Chest", "Full Body"]);
+const PLAN_FOCUS_AREAS = new Set(["Arms", "Abs", "Shoulders", "Legs", "Back", "Chest", "Full Body"]);
 
 function parseMultiQueryParam(param) {
   if (param == null) return [];
@@ -250,7 +250,7 @@ async function createPlan(req, res, next) {
       if (!PLAN_FOCUS_AREAS.has(focus_area)) {
         return res.status(400).json({
           ok: false,
-          message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
+          message: "focus_area must be one of: Arms, Abs, Shoulders, Legs, Back, Chest, Full Body",
         });
       }
     }
@@ -509,7 +509,7 @@ function buildPlanFilter(query) {
   if (focusAreas.length > 0) {
     const invalid = focusAreas.filter((fa) => !PLAN_FOCUS_AREAS.has(fa));
     if (invalid.length > 0) {
-      throw { status: 400, message: `focus_area contains invalid value(s): ${invalid.join(", ")}. Must be one of: Arms, Abs, Legs, Back, Chest, Full Body` };
+      throw { status: 400, message: `focus_area contains invalid value(s): ${invalid.join(", ")}. Must be one of: Arms, Abs, Shoulders, Legs, Back, Chest, Full Body` };
     }
     filter.focus_area = focusAreas.length === 1 ? focusAreas[0] : { $in: focusAreas };
   }
@@ -639,7 +639,7 @@ async function updatePlan(req, res, next) {
         if (!PLAN_FOCUS_AREAS.has(fa)) {
           return res.status(400).json({
             ok: false,
-            message: "focus_area must be one of: Arms, Abs, Legs, Back, Chest, Full Body",
+            message: "focus_area must be one of: Arms, Abs, Shoulders, Legs, Back, Chest, Full Body",
           });
         }
         updates.focus_area = fa;
