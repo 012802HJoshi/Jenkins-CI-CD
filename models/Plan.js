@@ -33,7 +33,7 @@ const PlanSchema = new mongoose.Schema({
   },
   focus_area: {
     type: String,
-    enum: ["Arms", "Abs", "Legs", "Back", "Chest", "Full Body"],
+    enum: ["Arms", "Abs", "Shoulders", "Legs", "Back", "Chest", "Full Body"],
   },
   premium: { type: String, enum: ["true", "false"], default: "false" },
   bannerImage_male: { type: String, required: true },
