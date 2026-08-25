@@ -19,7 +19,7 @@ const PlanSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   slug: { type: String, required: true, unique: true, trim: true },
   description: { type: String, default: "" },
-  outcome: { type: String, default: "" },
+  outcome: { type: [String], default: [] },
   difficulty: {
     type: String,
     enum: ["beginner", "intermediate", "advanced"],

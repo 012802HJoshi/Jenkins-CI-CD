@@ -75,6 +75,28 @@ function parseNonNegativeDuration(value) {
   return n;
 }
 
+function parseStringArray(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.map((s) => String(s).trim()).filter(Boolean);
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((s) => String(s).trim()).filter(Boolean);
+    } catch {
+      // fall through
+    }
+  }
+
+  return trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 /** Multipart sends nested structures as JSON strings; parse before validating. */
 function parseWeeksInput(raw) {
   if (raw == null) return { ok: true, weeks: undefined };
@@ -472,7 +494,7 @@ async function createChallenge(req, res) {
     const challengeBody = {
       slug,
       name,
-      outcome: body.outcome !== undefined ? String(body.outcome) : "",
+      outcome: body.outcome !== undefined ? parseStringArray(body.outcome) : [],
       durationDays,
       weeks: metaWeeks,
       ...(goal ? { goal } : {}),
@@ -522,7 +544,7 @@ async function updateChallenge(req, res) {
     const updates = {};
 
     if (Object.prototype.hasOwnProperty.call(body, "outcome")) {
-      updates.outcome = String(body.outcome);
+      updates.outcome = parseStringArray(body.outcome);
     }
 
     if (Object.prototype.hasOwnProperty.call(body, "name")) {
@@ -684,7 +706,7 @@ async function listChallenges(req, res) {
     const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal premium difficulty durationDays banner_male banner_female")
+      .select("_id slug name goal outcome premium difficulty durationDays banner_male banner_female")
       .lean();
     return res.json({ ok: true, data: challenges });
   } catch (err) {
@@ -716,7 +738,7 @@ async function getChallengesByDifficulty(req, res) {
     const challenges = await Challenge.find(filter)
       .sort({ createdAt: -1 })
       .limit(50)
-      .select("_id slug name goal premium difficulty durationDays banner_male banner_female")
+      .select("_id slug name goal outcome premium difficulty durationDays banner_male banner_female")
       .lean();
     return res.json({ ok: true, data: challenges });
   } catch (err) {

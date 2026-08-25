@@ -74,6 +74,28 @@ function parseExerciseDuration(value) {
   return n;
 }
 
+function parseStringArray(value) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.map((s) => String(s).trim()).filter(Boolean);
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((s) => String(s).trim()).filter(Boolean);
+    } catch {
+      // fall through
+    }
+  }
+
+  return trimmed
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function normalizeExercisesInput(raw) {
   if (raw == null) {
     return { ok: true, arr: [] };
@@ -255,7 +277,7 @@ async function createPlan(req, res, next) {
       }
     }
 
-    const outcome = body.outcome !== undefined ? String(body.outcome) : "";
+    const outcome = body.outcome !== undefined ? parseStringArray(body.outcome) : [];
 
     let difficulty = "beginner";
     if (difficultyRaw) {
@@ -627,7 +649,7 @@ async function updatePlan(req, res, next) {
     }
 
     if (body.outcome !== undefined) {
-      updates.outcome = String(body.outcome);
+      updates.outcome = parseStringArray(body.outcome);
     }
 
     const focus_area_raw = body.focus_area !== undefined ? body.focus_area : body.focusArea;
