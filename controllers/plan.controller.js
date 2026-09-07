@@ -373,13 +373,16 @@ async function createPlan(req, res, next) {
       );
     }
 
-    if (!bannerImage_male || !squareImage_male || !bannerImage_female || !squareImage_female) {
+    if (!bannerImage_male || !squareImage_male) {
       return res.status(400).json({
         ok: false,
         message:
-          "bannerImage_male, squareImage_male, bannerImage_female, and squareImage_female are required (upload files or pass URLs in the body)",
+          "bannerImage_male and squareImage_male are required (upload files or pass URLs in the body)",
       });
     }
+
+    bannerImage_female = bannerImage_female || "";
+    squareImage_female = squareImage_female || "";
 
     const premium = parsePremiumString(body.premium);
     if (body.premium !== undefined && premium === undefined) {
@@ -782,16 +785,10 @@ async function updatePlan(req, res, next) {
     }
     if (body.bannerImage_female !== undefined && !bannerFemaleFile) {
       const u = toRelativePath(body.bannerImage_female);
-      if (!u) {
-        return res.status(400).json({ ok: false, message: "bannerImage_female URL cannot be empty" });
-      }
       updates.bannerImage_female = u;
     }
     if (body.squareImage_female !== undefined && !squareFemaleFile) {
       const u = toRelativePath(body.squareImage_female);
-      if (!u) {
-        return res.status(400).json({ ok: false, message: "squareImage_female URL cannot be empty" });
-      }
       updates.squareImage_female = u;
     }
 

@@ -28,7 +28,7 @@ const PlanSchema = new mongoose.Schema({
   },
   goal: {
     type: String,
-    enum: ["weight_loss", "muscle_building", "keep_fit", "get_toned", "mobility_relax"],
+    enum: ["weight_loss", "muscle_building", "stay_fit", "get_toned", "mobility_relax"],
     required: true,
   },
   focus_area: {
@@ -37,9 +37,9 @@ const PlanSchema = new mongoose.Schema({
   },
   premium: { type: String, enum: ["true", "false"], default: "false" },
   bannerImage_male: { type: String, required: true },
-  bannerImage_female: { type: String, required: true },
+  bannerImage_female: { type: String, required: false, default: "" },
   squareImage_male: { type: String, required: true },
-  squareImage_female: { type: String, required: true },
+  squareImage_female: { type: String, required: false, default: "" },
   duration: { type: Number, default: 0, min: 0 },
   numberofExercises: { type: Number, default: 0, min: 0 },
   calories: { type: Number, default: 0, min: 0 },
