@@ -44,7 +44,7 @@ function getPayload(req) {
 }
 
 const PLAN_DIFFICULTIES = new Set(["beginner", "intermediate", "advanced"]);
-const PLAN_GOALS = new Set(["weight_loss", "muscle_building", "keep_fit", "get_toned", "mobility_relax"]);
+const PLAN_GOALS = new Set(["weight_loss", "muscle_building", "stay_fit", "keep_fit", "get_toned", "mobility_relax"]);
 const PLAN_FOCUS_AREAS = new Set(["Arms", "Abs", "Shoulders", "Legs", "Back", "Chest", "Full Body"]);
 
 function parseMultiQueryParam(param) {
@@ -261,7 +261,7 @@ async function createPlan(req, res, next) {
     if (!goalRaw || !PLAN_GOALS.has(goalRaw)) {
       return res.status(400).json({
         ok: false,
-        message: "goal is required and must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
+        message: "goal is required and must be one of: weight_loss, muscle_building, stay_fit, keep_fit, get_toned, mobility_relax",
       });
     }
 
@@ -524,7 +524,7 @@ function buildPlanFilter(query) {
   if (goals.length > 0) {
     const invalid = goals.filter((g) => !PLAN_GOALS.has(g));
     if (invalid.length > 0) {
-      throw { status: 400, message: `goal contains invalid value(s): ${invalid.join(", ")}. Must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax` };
+      throw { status: 400, message: `goal contains invalid value(s): ${invalid.join(", ")}. Must be one of: weight_loss, muscle_building, stay_fit, keep_fit, get_toned, mobility_relax` };
     }
     filter.goal = goals.length === 1 ? goals[0] : { $in: goals };
   }
@@ -645,7 +645,7 @@ async function updatePlan(req, res, next) {
       if (!PLAN_GOALS.has(g)) {
         return res.status(400).json({
           ok: false,
-          message: "goal must be one of: weight_loss, muscle_building, keep_fit, get_toned, mobility_relax",
+          message: "goal must be one of: weight_loss, muscle_building, stay_fit, keep_fit, get_toned, mobility_relax",
         });
       }
       updates.goal = g;

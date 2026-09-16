@@ -28,7 +28,7 @@ const PlanSchema = new mongoose.Schema({
   },
   goal: {
     type: String,
-    enum: ["weight_loss", "muscle_building", "stay_fit", "get_toned", "mobility_relax"],
+    enum: ["weight_loss", "muscle_building", "stay_fit", "keep_fit", "get_toned", "mobility_relax"],
     required: true,
   },
   focus_area: {
