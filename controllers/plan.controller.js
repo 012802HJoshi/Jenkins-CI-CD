@@ -143,12 +143,10 @@ function extractExerciseLookup(item) {
     if (sets === null) {
       return null;
     }
-    const reps = item.reps !== undefined && item.reps !== null && item.reps !== ""
-      ? parseExerciseDuration(item.reps)
-      : undefined;
-    if (reps === null) {
-      return null;
-    }
+    const reps =
+      item.reps !== undefined && item.reps !== null && String(item.reps).trim() !== ""
+        ? String(item.reps).trim()
+        : undefined;
     const id = String(item.exerciseId || item._id || "").trim();
     if (id && mongoose.isValidObjectId(id)) {
       return { kind: "id", value: id, duration, sets, reps };

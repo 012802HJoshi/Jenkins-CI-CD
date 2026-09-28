@@ -7,7 +7,7 @@ const PlanExerciseSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     duration: { type: Number, required: false, min: 0 },
     sets: { type: Number, required: false, min: 0 },
-    reps: { type: Number, required: false, min: 0 },
+    reps: { type: String, required: false, trim: true },
     category: { type: String, required: true, trim: true },
     thumbnailmale: { type: String, required: true, trim: true },
     thumbnailfemale: { type: String, required: false, default: "", trim: true },
