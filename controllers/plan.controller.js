@@ -39,7 +39,16 @@ function extFromMime(mimetype) {
 }
 
 function getPayload(req) {
-  const p = req.body;
+  let p = req.body;
+  if (p?.data && typeof p.data === "string") {
+    try {
+      p = { ...p, ...JSON.parse(p.data) };
+    } catch {
+      // ignore
+    }
+  } else if (p?.data && typeof p.data === "object") {
+    p = { ...p, ...p.data };
+  }
   return p && typeof p === "object" ? p : {};
 }
 
@@ -69,6 +78,22 @@ function parseNonNegativeNumber(value, fallback) {
 
 function parseExerciseDuration(value) {
   if (value == null || value === "") return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === "string") {
+    const s = value.replace(/\u00a0/g, " ").trim().toLowerCase();
+    if (!s || s === "-" || s === "n/a") return null;
+    if (s.endsWith("min") || s.endsWith("mins") || s.endsWith("m")) {
+      const num = parseFloat(s);
+      if (Number.isFinite(num) && num >= 0) return Math.round(num * 60);
+    }
+    const clean = s.replace(/[^0-9.]/g, "");
+    if (clean) {
+      const num = parseFloat(clean);
+      if (Number.isFinite(num) && num >= 0) return Math.round(num);
+    }
+  }
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return null;
   return n;
@@ -103,34 +128,61 @@ function normalizeExercisesInput(raw) {
 
   let arr = raw;
   if (typeof raw === "string") {
-    const trimmed = raw.replace(/\u00a0/g, " ").trim();
+    let trimmed = raw.replace(/\u00a0/g, " ").trim();
     if (!trimmed) {
       return { ok: true, arr: [] };
     }
-    if (trimmed.startsWith("[")) {
+
+    // Unwrap if wrapped in outer quotes: e.g. "\"[{...}]\""
+    if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
       try {
-        const parsed = JSON.parse(trimmed);
-        arr = Array.isArray(parsed) ? parsed : [];
+        const unwrapped = JSON.parse(trimmed);
+        if (typeof unwrapped === "string") {
+          trimmed = unwrapped.trim();
+          arr = trimmed;
+        } else if (Array.isArray(unwrapped) || (unwrapped && typeof unwrapped === "object")) {
+          arr = Array.isArray(unwrapped) ? unwrapped : [unwrapped];
+        }
       } catch {
-        return { ok: false, status: 400, message: "exercises must be valid JSON array when sent as string" };
+        // ignore
       }
-    } else if (trimmed.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        arr = parsed && typeof parsed === "object" ? [parsed] : [];
-      } catch {
-        return { ok: false, status: 400, message: "exercises must be valid JSON when sent as string" };
+    }
+
+    if (typeof arr === "string" || typeof trimmed === "string") {
+      const s = typeof arr === "string" ? arr.trim() : trimmed;
+      if (s.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(s);
+          arr = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return { ok: false, status: 400, message: "exercises must be valid JSON array when sent as string" };
+        }
+      } else if (s.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(s);
+          arr = parsed && typeof parsed === "object" ? [parsed] : [];
+        } catch {
+          return { ok: false, status: 400, message: "exercises must be valid JSON when sent as string" };
+        }
+      } else {
+        arr = s.split(",").map((x) => x.trim()).filter(Boolean);
       }
-    } else {
-      arr = trimmed.split(",").map((s) => s.trim()).filter(Boolean);
     }
   }
 
-  if (!Array.isArray(arr)) {
-    return { ok: false, status: 400, message: "exercises must be an array" };
+  if (Array.isArray(arr)) {
+    arr = arr.flat(Infinity);
+    return { ok: true, arr };
   }
 
-  return { ok: true, arr };
+  if (arr && typeof arr === "object") {
+    const values = Object.values(arr);
+    if (values.length > 0) {
+      return { ok: true, arr: values.flat(Infinity) };
+    }
+  }
+
+  return { ok: false, status: 400, message: "exercises must be an array" };
 }
 
 function extractExerciseLookup(item) {
@@ -154,30 +206,48 @@ function extractExerciseLookup(item) {
     }
   }
   if (typeof item === "object" && !Array.isArray(item)) {
-    const duration = item.duration !== undefined && item.duration !== null && item.duration !== ""
-      ? parseExerciseDuration(item.duration)
-      : undefined;
-    if (duration === null) {
-      return null;
+    let duration = undefined;
+    if (item.duration !== undefined && item.duration !== null && item.duration !== "") {
+      const parsedD = parseExerciseDuration(item.duration);
+      duration = parsedD !== null ? parsedD : undefined;
     }
-    const sets = item.sets !== undefined && item.sets !== null && item.sets !== ""
-      ? parseExerciseDuration(item.sets)
-      : undefined;
-    if (sets === null) {
-      return null;
+
+    let sets = undefined;
+    if (item.sets !== undefined && item.sets !== null && item.sets !== "") {
+      const parsedS = parseExerciseDuration(item.sets);
+      sets = parsedS !== null ? parsedS : undefined;
     }
+
     const reps =
       item.reps !== undefined && item.reps !== null && String(item.reps).trim() !== ""
         ? String(item.reps).trim()
         : undefined;
-    const id = String(item.exerciseId || item._id || "").trim();
-    if (id && mongoose.isValidObjectId(id)) {
-      return { kind: "id", value: id, duration, sets, reps };
+
+    // Check id variants (exerciseId, _id, id, exercise)
+    const rawId = String(item.exerciseId || item._id || item.id || item.exercise || "").trim();
+    if (rawId) {
+      if (mongoose.isValidObjectId(rawId)) {
+        return { kind: "id", value: rawId, duration, sets, reps };
+      }
+      // If client sent slug in id field
+      return { kind: "slug", value: rawId, duration, sets, reps };
     }
-    const slug = String(item.exerciseSlug || item.slug || "").trim();
-    if (slug) {
-      return { kind: "slug", value: slug, duration, sets, reps };
+
+    // Check slug variants (exerciseSlug, slug, exercise_slug)
+    const rawSlug = String(item.exerciseSlug || item.slug || item.exercise_slug || "").trim();
+    if (rawSlug) {
+      return { kind: "slug", value: rawSlug, duration, sets, reps };
     }
+
+    // Fallback: title/name converted to slug
+    const rawTitle = String(item.exerciseTitle || item.title || item.name || "").trim();
+    if (rawTitle) {
+      const generatedSlug = rawTitle.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      if (generatedSlug) {
+        return { kind: "slug", value: generatedSlug, duration, sets, reps };
+      }
+    }
+
     return null;
   }
   return null;
@@ -195,14 +265,16 @@ async function resolvePlanExercises(raw) {
   const arr = normalized.arr;
 
   const lookups = [];
-  for (const item of arr) {
+  for (let i = 0; i < arr.length; i++) {
+    const item = arr[i];
     const key = extractExerciseLookup(item);
     if (!key) {
+      console.warn(`[resolvePlanExercises] Failed validation for exercise at index ${i}:`, item);
       return {
         ok: false,
         status: 400,
         message:
-          "each exercise must be an object with duration and one of exerciseSlug/slug or exerciseId/_id",
+          `each exercise must be an object with duration and one of exerciseSlug/slug or exerciseId/_id (failed at index ${i}: ${typeof item === "object" ? JSON.stringify(item) : String(item)})`,
       };
     }
     lookups.push(key);
