@@ -103,7 +103,7 @@ function normalizeExercisesInput(raw) {
 
   let arr = raw;
   if (typeof raw === "string") {
-    const trimmed = raw.trim();
+    const trimmed = raw.replace(/\u00a0/g, " ").trim();
     if (!trimmed) {
       return { ok: true, arr: [] };
     }
@@ -113,6 +113,13 @@ function normalizeExercisesInput(raw) {
         arr = Array.isArray(parsed) ? parsed : [];
       } catch {
         return { ok: false, status: 400, message: "exercises must be valid JSON array when sent as string" };
+      }
+    } else if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        arr = parsed && typeof parsed === "object" ? [parsed] : [];
+      } catch {
+        return { ok: false, status: 400, message: "exercises must be valid JSON when sent as string" };
       }
     } else {
       arr = trimmed.split(",").map((s) => s.trim()).filter(Boolean);
@@ -129,6 +136,22 @@ function normalizeExercisesInput(raw) {
 function extractExerciseLookup(item) {
   if (item == null) {
     return null;
+  }
+  if (typeof item === "string") {
+    const trimmed = item.replace(/\u00a0/g, " ").trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith("{")) {
+      try {
+        item = JSON.parse(trimmed);
+      } catch {
+        return null;
+      }
+    } else {
+      if (mongoose.isValidObjectId(trimmed)) {
+        return { kind: "id", value: trimmed };
+      }
+      return { kind: "slug", value: trimmed };
+    }
   }
   if (typeof item === "object" && !Array.isArray(item)) {
     const duration = item.duration !== undefined && item.duration !== null && item.duration !== ""
